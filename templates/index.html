@@ -37,15 +37,28 @@
         <div class="panel-header panel-header-row">
           <div>
             <h2>Module Completion</h2>
-            <p>Ongoing modules from the Scorecard sheet · click a module for stage breakdown</p>
+            <p>Modules from the Scorecard sheet · click a module for stage breakdown</p>
           </div>
-          <div class="sort-controls">
-            <label for="module-sort">Sort by</label>
-            <select id="module-sort">
-              <option value="completion">Completion (high → low)</option>
-              <option value="priority">Priority (P1 → P2)</option>
-              <option value="name">Name (A → Z)</option>
-            </select>
+          <div class="panel-controls">
+            <div class="sort-controls">
+              <label for="module-filter">Filter</label>
+              <select id="module-filter">
+                <option value="all">All modules</option>
+                <option value="priority">Priority (P1 &amp; P2)</option>
+                <option value="completed">Completed</option>
+                <option value="pending">Pending</option>
+                <option value="ongoing">Ongoing</option>
+                <option value="not-started">Not started</option>
+              </select>
+            </div>
+            <div class="sort-controls">
+              <label for="module-sort">Sort by</label>
+              <select id="module-sort">
+                <option value="completion">Completion (high → low)</option>
+                <option value="priority">Priority (P1 → P2)</option>
+                <option value="name">Name (A → Z)</option>
+              </select>
+            </div>
           </div>
         </div>
         <div class="module-grid" id="module-grid"></div>
@@ -100,6 +113,7 @@
   <script>
     let scoreboardData = null;
     let moduleSort = "completion";
+    let moduleFilter = "all";
 
     const pct = (value) => value == null ? "—" : `${Math.round(value * 100)}%`;
     const num = (value) => value == null ? "—" : Math.round(value).toLocaleString();
@@ -113,20 +127,40 @@
       return "bar-none";
     };
 
+    const isCompleted = (mod) => mod.status === "completed" || (mod.pct_completed ?? 0) >= 1;
+
+    function moduleMatchesFilter(mod) {
+      const status = mod.status || "ongoing";
+      if (moduleFilter === "all") return true;
+      if (moduleFilter === "priority") return mod.priority === 1 || mod.priority === 2;
+      if (moduleFilter === "completed") return isCompleted(mod);
+      if (moduleFilter === "pending") return status === "ongoing" || status === "not-started";
+      if (moduleFilter === "ongoing") return status === "ongoing";
+      if (moduleFilter === "not-started") return status === "not-started";
+      return true;
+    }
+
+    function filterModules(modules) {
+      return modules.filter(moduleMatchesFilter);
+    }
+
     function sortModules(modules) {
-      const sorted = [...modules];
+      const pinCompleted = moduleFilter === "all";
+      const completed = pinCompleted ? modules.filter(isCompleted) : [];
+      const rest = pinCompleted ? modules.filter((mod) => !isCompleted(mod)) : [...modules];
       if (moduleSort === "priority") {
-        sorted.sort((a, b) => {
+        rest.sort((a, b) => {
           const pri = (a.priority ?? 99) - (b.priority ?? 99);
           if (pri !== 0) return pri;
           return (b.pct_completed ?? 0) - (a.pct_completed ?? 0);
         });
       } else if (moduleSort === "name") {
-        sorted.sort((a, b) => a.module.localeCompare(b.module));
+        rest.sort((a, b) => a.module.localeCompare(b.module));
       } else {
-        sorted.sort((a, b) => (b.pct_completed ?? 0) - (a.pct_completed ?? 0));
+        rest.sort((a, b) => (b.pct_completed ?? 0) - (a.pct_completed ?? 0));
       }
-      return sorted;
+      completed.sort((a, b) => (b.pct_completed ?? 0) - (a.pct_completed ?? 0));
+      return [...completed, ...rest];
     }
 
     function renderHero(data) {
@@ -143,7 +177,7 @@
         </article>
         <article class="stat-card">
           <span class="stat-label">Ongoing Modules</span>
-          <span class="stat-value">${data.modules.length}</span>
+          <span class="stat-value">${data.modules.filter((mod) => mod.status === "ongoing").length}</span>
           <span class="stat-detail">From Scorecard sheet</span>
         </article>
         <article class="stat-card">
@@ -156,16 +190,26 @@
 
     function renderModules(data) {
       const grid = document.getElementById("module-grid");
-      const modules = sortModules(data.modules);
+      const modules = sortModules(filterModules(data.modules));
       const labels = data.phase_labels || {};
+
+      if (!modules.length) {
+        grid.innerHTML = `<p class="empty-state">No modules match this filter.</p>`;
+        return;
+      }
 
       grid.innerHTML = modules.map((mod) => {
         const completed = mod.pct_completed ?? 0;
+        const done = isCompleted(mod);
+        const cardClass = done ? "module-card module-card-complete" : "module-card";
+        const badge = done
+          ? `<span class="priority-badge complete-badge">Complete</span>`
+          : `<span class="priority-badge">Priority ${mod.priority ?? "?"}</span>`;
         return `
-          <button class="module-card" type="button" data-module="${mod.module.replace(/"/g, "&quot;")}">
+          <button class="${cardClass}" type="button" data-module="${mod.module.replace(/"/g, "&quot;")}">
             <div class="module-card-top">
               <h3>${mod.module}</h3>
-              <span class="priority-badge">Priority ${mod.priority ?? "?"}</span>
+              ${badge}
             </div>
             <div class="module-completion">
               <span class="module-pct">${pct(completed)}</span>
@@ -201,7 +245,9 @@
 
     function openModuleModal(mod, labels) {
       const modal = document.getElementById("module-modal");
-      document.getElementById("modal-priority").textContent = `Priority ${mod.priority ?? "?"}`;
+      document.getElementById("modal-priority").textContent = isCompleted(mod)
+        ? "Complete"
+        : `Priority ${mod.priority ?? "?"}`;
       document.getElementById("modal-title").textContent = mod.module;
       document.getElementById("modal-pct").textContent = pct(mod.pct_completed);
       document.getElementById("modal-meta").innerHTML = `
@@ -388,6 +434,11 @@
 
     document.getElementById("module-sort").addEventListener("change", (event) => {
       moduleSort = event.target.value;
+      if (scoreboardData) renderModules(scoreboardData);
+    });
+
+    document.getElementById("module-filter").addEventListener("change", (event) => {
+      moduleFilter = event.target.value;
       if (scoreboardData) renderModules(scoreboardData);
     });
 

@@ -2,6 +2,10 @@
 name = "intrakore-scoreboard"
 version = "1.0.0"
 requires-python = ">=3.12,<3.13"
+dependencies = [
+    "flask>=3.0",
+    "openpyxl>=3.1",
+]
 
 [tool.vercel]
 entrypoint = "app:app"

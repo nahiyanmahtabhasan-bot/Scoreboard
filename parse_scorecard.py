@@ -88,11 +88,13 @@ def _parse_module_row(rows: Rows, idx: int) -> dict[str, Any]:
     }
 
 
-def _is_ongoing_module(module: dict[str, Any]) -> bool:
-    pct = module.get("pct_completed")
-    if pct is not None and pct >= 1.0:
-        return False
-    return module.get("priority") in (1, 2) and bool(module.get("module"))
+def _module_status(module: dict[str, Any]) -> str:
+    pct = module.get("pct_completed") or 0
+    if pct >= 1.0:
+        return "completed"
+    if pct <= 0:
+        return "not-started"
+    return "ongoing"
 
 
 def _find_section_header(rows: Rows, start: int = 0) -> int | None:
@@ -225,8 +227,9 @@ def parse_scorecard(source: str | Path | BinaryIO, *, source_label: str | None =
 
     rows = _load_rows(source)
     all_modules, summary = _module_progress_section(rows)
-    ongoing_modules = [module for module in all_modules if _is_ongoing_module(module)]
-    ongoing_names = {module["module"] for module in ongoing_modules}
+    for module in all_modules:
+        module["status"] = _module_status(module)
+    module_names = {module["module"] for module in all_modules}
 
     workload_start, workload_end, progress_start, progress_end = _find_team_sections(rows)
     totals_start, totals_end, progress_start_phases, progress_end_phases = _find_phase_sections(rows)
@@ -234,19 +237,19 @@ def parse_scorecard(source: str | Path | BinaryIO, *, source_label: str | None =
     team_workload = [
         row
         for row in _team_module_rows(rows, workload_start, workload_end, "hours")
-        if row["module"] in ongoing_names
+        if row["module"] in module_names
     ]
     team_progress = [
         row
         for row in _team_module_rows(rows, progress_start, progress_end, "progress")
-        if row["module"] in ongoing_names
+        if row["module"] in module_names
     ]
 
     return {
         "source_file": label,
         "source_sheet": "Scorecard",
         "summary": summary or {},
-        "modules": ongoing_modules,
+        "modules": all_modules,
         "team_workload": team_workload,
         "team_progress": team_progress,
         "phase_totals": _phase_team_rows(rows, totals_start, totals_end, "totals"),
