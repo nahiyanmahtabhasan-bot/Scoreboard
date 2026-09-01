@@ -10,6 +10,7 @@
   <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=JetBrains+Mono:wght@500;600&display=swap" rel="stylesheet">
 </head>
 <body>
+  <div class="scale-viewport">
   <div class="page">
     <header class="hero">
       <div class="hero-top">
@@ -87,6 +88,19 @@
     <footer>
       <span id="updated-at">Auto-refreshes every 30 seconds</span>
     </footer>
+  </div>
+  </div>
+
+  <div class="scale-control" id="scale-control">
+    <button class="scale-toggle" id="scale-toggle" type="button" aria-label="Resize page" title="Resize page">
+      <span aria-hidden="true">⤢</span>
+    </button>
+    <div class="scale-panel hidden" id="scale-panel">
+      <label for="page-scale">Page size</label>
+      <input type="range" id="page-scale" min="75" max="175" value="100" step="5">
+      <span class="scale-value" id="scale-value">100%</span>
+      <button class="scale-reset" id="scale-reset" type="button">Reset</button>
+    </div>
   </div>
 
   <div class="modal-backdrop hidden" id="module-modal" aria-hidden="true">
@@ -448,6 +462,43 @@
 
     loadScoreboard();
     setInterval(() => loadScoreboard(false), 30000);
+
+    const SCALE_KEY = "scoreboard-page-scale";
+    const scaleInput = document.getElementById("page-scale");
+    const scaleValue = document.getElementById("scale-value");
+    const scalePanel = document.getElementById("scale-panel");
+    const scaleToggle = document.getElementById("scale-toggle");
+
+    function applyPageScale(percent) {
+      const clamped = Math.min(175, Math.max(75, percent));
+      const scale = clamped / 100;
+      document.documentElement.style.setProperty("--page-scale", scale);
+      scaleInput.value = String(clamped);
+      scaleValue.textContent = `${clamped}%`;
+      document.body.classList.toggle("page-zoomed", clamped > 100);
+      localStorage.setItem(SCALE_KEY, String(clamped));
+    }
+
+    const savedScale = Number(localStorage.getItem(SCALE_KEY));
+    applyPageScale(Number.isFinite(savedScale) && savedScale > 0 ? savedScale : 100);
+
+    scaleInput.addEventListener("input", (event) => {
+      applyPageScale(Number(event.target.value));
+    });
+
+    document.getElementById("scale-reset").addEventListener("click", () => {
+      applyPageScale(100);
+    });
+
+    scaleToggle.addEventListener("click", () => {
+      scalePanel.classList.toggle("hidden");
+    });
+
+    document.addEventListener("click", (event) => {
+      if (!event.target.closest("#scale-control")) {
+        scalePanel.classList.add("hidden");
+      }
+    });
   </script>
 </body>
 </html>
