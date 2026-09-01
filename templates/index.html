@@ -12,18 +12,18 @@
 <body>
   <div class="page">
     <header class="hero">
-      <div class="hero-text">
-        <p class="eyebrow">Intrakore · Project Plan</p>
-        <h1>Live Scoreboard</h1>
-        <p class="subtitle" id="source-file">Loading spreadsheet…</p>
-      </div>
-      <div class="hero-actions">
+      <div class="hero-top">
+        <div class="hero-text">
+          <p class="eyebrow">Intrakore · Project Plan</p>
+          <h1>Live Scoreboard</h1>
+        </div>
         <button class="refresh-btn" id="refresh-btn" type="button" aria-label="Refresh scoreboard">
           <span class="refresh-icon" id="refresh-icon">↻</span>
           Refresh
         </button>
-        <div class="hero-stats" id="hero-stats"></div>
       </div>
+      <p class="subtitle" id="source-file">Loading spreadsheet…</p>
+      <div class="hero-stats" id="hero-stats"></div>
     </header>
 
     <nav class="tabs">
@@ -35,10 +35,7 @@
     <main>
       <section class="panel active" id="panel-modules">
         <div class="panel-header panel-header-row">
-          <div>
-            <h2>Module Completion</h2>
-            <p>Modules from the Scorecard sheet · click a module for stage breakdown</p>
-          </div>
+          <h2>Module Completion</h2>
           <div class="panel-controls">
             <div class="sort-controls">
               <label for="module-filter">Filter</label>
@@ -169,21 +166,28 @@
         ? `<a href="${data.source_url}" target="_blank" rel="noopener">${data.source_file} · ${data.source_sheet || "Scorecard"}</a>`
         : `${data.source_file} · ${data.source_sheet || "Scorecard"}`;
       document.getElementById("source-file").innerHTML = source;
+      const completedCount = data.modules.filter(isCompleted).length;
+      const ongoingCount = data.modules.filter((mod) => mod.status === "ongoing").length;
       document.getElementById("hero-stats").innerHTML = `
         <article class="stat-card stat-primary">
-          <span class="stat-label">Overall Completion</span>
+          <span class="stat-label">Overall</span>
           <span class="stat-value">${pct(summary.pct_completed)}</span>
           <span class="stat-detail">${num(summary.completed_items)} / ${num(summary.total_items)} items</span>
         </article>
-        <article class="stat-card">
-          <span class="stat-label">Ongoing Modules</span>
-          <span class="stat-value">${data.modules.filter((mod) => mod.status === "ongoing").length}</span>
-          <span class="stat-detail">From Scorecard sheet</span>
+        <article class="stat-card stat-complete">
+          <span class="stat-label">Completed</span>
+          <span class="stat-value">${completedCount}</span>
+          <span class="stat-detail">of ${data.modules.length} modules</span>
+        </article>
+        <article class="stat-card stat-ongoing">
+          <span class="stat-label">Ongoing</span>
+          <span class="stat-value">${ongoingCount}</span>
+          <span class="stat-detail">in progress</span>
         </article>
         <article class="stat-card">
-          <span class="stat-label">Team Members</span>
+          <span class="stat-label">Team</span>
           <span class="stat-value">${data.team_members.length}</span>
-          <span class="stat-detail">${data.team_members.join(" · ")}</span>
+          <span class="stat-detail">members</span>
         </article>
       `;
     }
@@ -211,18 +215,14 @@
               <h3>${mod.module}</h3>
               ${badge}
             </div>
-            <div class="module-completion">
+            <div class="module-card-body">
               <span class="module-pct">${pct(completed)}</span>
-              <span class="module-pct-label">complete</span>
-            </div>
-            <div class="progress-row">
               <div class="progress-track">
                 <div class="progress-fill ${barClass(completed)}" style="width:${Math.max(completed * 100, completed > 0 ? 2 : 0)}%"></div>
               </div>
             </div>
             <div class="module-meta">
-              <span>${num(mod.completed_items)} / ${num(mod.total_items)} items</span>
-              <span class="module-hint">View stages →</span>
+              <span>${num(mod.completed_items)} / ${num(mod.total_items)}</span>
             </div>
           </button>
         `;
