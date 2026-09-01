@@ -29,7 +29,13 @@ GOOGLE_EXPORT_URL = os.environ.get(
 DEFAULT_XLSX = Path.home() / "Downloads" / "Copy of Project Plan.xlsx"
 CACHE_TTL_SECONDS = int(os.environ.get("SCOREBOARD_CACHE_SECONDS", "30"))
 
-app = Flask(__name__)
+BASE_DIR = Path(__file__).resolve().parent
+
+app = Flask(
+    __name__,
+    template_folder=str(BASE_DIR / "templates"),
+    static_folder=str(BASE_DIR / "static"),
+)
 _cache: tuple[float, dict] | None = None
 
 
@@ -84,6 +90,11 @@ def _load_data(*, force_refresh: bool = False) -> dict:
 
     _cache = (now, data)
     return data
+
+
+@app.get("/api/health")
+def health():
+    return jsonify({"status": "ok"})
 
 
 @app.get("/")

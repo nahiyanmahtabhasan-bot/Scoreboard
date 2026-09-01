@@ -1,0 +1,398 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Intrakore Project Scoreboard</title>
+  <link rel="stylesheet" href="/static/style.css">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=JetBrains+Mono:wght@500;600&display=swap" rel="stylesheet">
+</head>
+<body>
+  <div class="page">
+    <header class="hero">
+      <div class="hero-text">
+        <p class="eyebrow">Intrakore · Project Plan</p>
+        <h1>Live Scoreboard</h1>
+        <p class="subtitle" id="source-file">Loading spreadsheet…</p>
+      </div>
+      <div class="hero-actions">
+        <button class="refresh-btn" id="refresh-btn" type="button" aria-label="Refresh scoreboard">
+          <span class="refresh-icon" id="refresh-icon">↻</span>
+          Refresh
+        </button>
+        <div class="hero-stats" id="hero-stats"></div>
+      </div>
+    </header>
+
+    <nav class="tabs">
+      <button class="tab active" data-tab="modules">Module Progress</button>
+      <button class="tab" data-tab="team">Team Workload</button>
+      <button class="tab" data-tab="phases">Phase Breakdown</button>
+    </nav>
+
+    <main>
+      <section class="panel active" id="panel-modules">
+        <div class="panel-header panel-header-row">
+          <div>
+            <h2>Module Completion</h2>
+            <p>Ongoing modules from the Scorecard sheet · click a module for stage breakdown</p>
+          </div>
+          <div class="sort-controls">
+            <label for="module-sort">Sort by</label>
+            <select id="module-sort">
+              <option value="completion">Completion (high → low)</option>
+              <option value="priority">Priority (P1 → P2)</option>
+              <option value="name">Name (A → Z)</option>
+            </select>
+          </div>
+        </div>
+        <div class="module-grid" id="module-grid"></div>
+      </section>
+
+      <section class="panel" id="panel-team">
+        <div class="panel-header">
+          <h2>Team Allocation & Progress</h2>
+          <p>Hours assigned and completion rate by team member</p>
+        </div>
+        <div class="team-summary" id="team-summary"></div>
+        <div class="table-wrap">
+          <table id="team-table">
+            <thead></thead>
+            <tbody></tbody>
+          </table>
+        </div>
+      </section>
+
+      <section class="panel" id="panel-phases">
+        <div class="panel-header">
+          <h2>Phase Totals & Progress</h2>
+          <p>Work distribution and completion by delivery phase</p>
+        </div>
+        <div class="phase-cards" id="phase-cards"></div>
+      </section>
+    </main>
+
+    <footer>
+      <span id="updated-at">Auto-refreshes every 30 seconds</span>
+    </footer>
+  </div>
+
+  <div class="modal-backdrop hidden" id="module-modal" aria-hidden="true">
+    <div class="modal-dialog" role="dialog" aria-modal="true" aria-labelledby="modal-title">
+      <button class="modal-close" id="modal-close" type="button" aria-label="Close">×</button>
+      <div class="modal-header">
+        <div>
+          <p class="modal-eyebrow" id="modal-priority"></p>
+          <h2 id="modal-title"></h2>
+        </div>
+        <div class="modal-summary">
+          <span class="modal-summary-value" id="modal-pct"></span>
+          <span class="modal-summary-label">Overall completion</span>
+        </div>
+      </div>
+      <div class="modal-meta" id="modal-meta"></div>
+      <div class="stage-grid" id="stage-grid"></div>
+    </div>
+  </div>
+
+  <script>
+    let scoreboardData = null;
+    let moduleSort = "completion";
+
+    const pct = (value) => value == null ? "—" : `${Math.round(value * 100)}%`;
+    const num = (value) => value == null ? "—" : Math.round(value).toLocaleString();
+
+    const barClass = (value) => {
+      if (value == null) return "bar-none";
+      if (value >= 1) return "bar-complete";
+      if (value >= 0.7) return "bar-high";
+      if (value >= 0.4) return "bar-mid";
+      if (value > 0) return "bar-low";
+      return "bar-none";
+    };
+
+    function sortModules(modules) {
+      const sorted = [...modules];
+      if (moduleSort === "priority") {
+        sorted.sort((a, b) => {
+          const pri = (a.priority ?? 99) - (b.priority ?? 99);
+          if (pri !== 0) return pri;
+          return (b.pct_completed ?? 0) - (a.pct_completed ?? 0);
+        });
+      } else if (moduleSort === "name") {
+        sorted.sort((a, b) => a.module.localeCompare(b.module));
+      } else {
+        sorted.sort((a, b) => (b.pct_completed ?? 0) - (a.pct_completed ?? 0));
+      }
+      return sorted;
+    }
+
+    function renderHero(data) {
+      const summary = data.summary || {};
+      const source = data.source_url
+        ? `<a href="${data.source_url}" target="_blank" rel="noopener">${data.source_file} · ${data.source_sheet || "Scorecard"}</a>`
+        : `${data.source_file} · ${data.source_sheet || "Scorecard"}`;
+      document.getElementById("source-file").innerHTML = source;
+      document.getElementById("hero-stats").innerHTML = `
+        <article class="stat-card stat-primary">
+          <span class="stat-label">Overall Completion</span>
+          <span class="stat-value">${pct(summary.pct_completed)}</span>
+          <span class="stat-detail">${num(summary.completed_items)} / ${num(summary.total_items)} items</span>
+        </article>
+        <article class="stat-card">
+          <span class="stat-label">Ongoing Modules</span>
+          <span class="stat-value">${data.modules.length}</span>
+          <span class="stat-detail">From Scorecard sheet</span>
+        </article>
+        <article class="stat-card">
+          <span class="stat-label">Team Members</span>
+          <span class="stat-value">${data.team_members.length}</span>
+          <span class="stat-detail">${data.team_members.join(" · ")}</span>
+        </article>
+      `;
+    }
+
+    function renderModules(data) {
+      const grid = document.getElementById("module-grid");
+      const modules = sortModules(data.modules);
+      const labels = data.phase_labels || {};
+
+      grid.innerHTML = modules.map((mod) => {
+        const completed = mod.pct_completed ?? 0;
+        return `
+          <button class="module-card" type="button" data-module="${mod.module.replace(/"/g, "&quot;")}">
+            <div class="module-card-top">
+              <h3>${mod.module}</h3>
+              <span class="priority-badge">Priority ${mod.priority ?? "?"}</span>
+            </div>
+            <div class="module-completion">
+              <span class="module-pct">${pct(completed)}</span>
+              <span class="module-pct-label">complete</span>
+            </div>
+            <div class="progress-row">
+              <div class="progress-track">
+                <div class="progress-fill ${barClass(completed)}" style="width:${Math.max(completed * 100, completed > 0 ? 2 : 0)}%"></div>
+              </div>
+            </div>
+            <div class="module-meta">
+              <span>${num(mod.completed_items)} / ${num(mod.total_items)} items</span>
+              <span class="module-hint">View stages →</span>
+            </div>
+          </button>
+        `;
+      }).join("");
+
+      grid.querySelectorAll(".module-card").forEach((card) => {
+        card.addEventListener("click", () => {
+          const moduleName = card.dataset.module;
+          const mod = data.modules.find((item) => item.module === moduleName);
+          if (mod) openModuleModal(mod, labels);
+        });
+      });
+    }
+
+    function stageInfo(value) {
+      if (value == null || value <= 0) return { status: "empty", label: "Not started" };
+      if (value >= 1) return { status: "complete", label: "Complete" };
+      return { status: "progress", label: "In progress" };
+    }
+
+    function openModuleModal(mod, labels) {
+      const modal = document.getElementById("module-modal");
+      document.getElementById("modal-priority").textContent = `Priority ${mod.priority ?? "?"}`;
+      document.getElementById("modal-title").textContent = mod.module;
+      document.getElementById("modal-pct").textContent = pct(mod.pct_completed);
+      document.getElementById("modal-meta").innerHTML = `
+        <span>${num(mod.completed_items)} / ${num(mod.total_items)} items completed</span>
+        <span>Overall weight: ${num(mod.overall)}</span>
+      `;
+
+      const phases = scoreboardData?.phases || [];
+      document.getElementById("stage-grid").innerHTML = phases.map((phase) => {
+        const value = mod.phases?.[phase] ?? 0;
+        const info = stageInfo(value);
+        const width = Math.max(value * 100, value > 0 ? 3 : 0);
+        return `
+          <article class="stage-card stage-${info.status}">
+            <div class="stage-header">
+              <span class="stage-dot" aria-hidden="true"></span>
+              <h4>${labels[phase] || phase}</h4>
+              <span class="stage-value">${pct(value)}</span>
+            </div>
+            <div class="stage-meter" aria-label="${labels[phase] || phase}: ${pct(value)}">
+              <div class="stage-meter-fill" style="width:${width}%"></div>
+            </div>
+            <span class="stage-label">${info.label}</span>
+          </article>
+        `;
+      }).join("");
+
+      modal.classList.remove("hidden");
+      modal.setAttribute("aria-hidden", "false");
+      document.body.classList.add("modal-open");
+    }
+
+    function closeModuleModal() {
+      const modal = document.getElementById("module-modal");
+      modal.classList.add("hidden");
+      modal.setAttribute("aria-hidden", "true");
+      document.body.classList.remove("modal-open");
+    }
+
+    function renderTeam(data) {
+      const totals = Object.fromEntries(data.team_members.map((name) => [name, 0]));
+      data.team_workload.forEach((row) => {
+        data.team_members.forEach((name) => {
+          totals[name] += row.hours?.[name] ?? 0;
+        });
+      });
+
+      const progressTotals = Object.fromEntries(data.team_members.map((name) => [name, []]));
+      data.team_progress.forEach((row) => {
+        data.team_members.forEach((name) => {
+          const value = row.progress?.[name];
+          if (value != null) progressTotals[name].push(value);
+        });
+      });
+
+      document.getElementById("team-summary").innerHTML = data.team_members.map((name) => {
+        const avgProgress = progressTotals[name].length
+          ? progressTotals[name].reduce((a, b) => a + b, 0) / progressTotals[name].length
+          : null;
+        return `
+          <article class="team-card">
+            <h3>${name}</h3>
+            <p class="team-hours">${num(totals[name])} hrs allocated</p>
+            <div class="progress-row compact">
+              <div class="progress-track">
+                <div class="progress-fill ${barClass(avgProgress)}" style="width:${Math.max((avgProgress ?? 0) * 100, 2)}%"></div>
+              </div>
+              <span class="progress-label">${pct(avgProgress)}</span>
+            </div>
+          </article>
+        `;
+      }).join("");
+
+      const thead = document.querySelector("#team-table thead");
+      const tbody = document.querySelector("#team-table tbody");
+      thead.innerHTML = `
+        <tr>
+          <th>Module</th>
+          <th>Pri</th>
+          ${data.team_members.map((name) => `<th>${name}</th>`).join("")}
+        </tr>
+      `;
+
+      tbody.innerHTML = data.team_workload.map((row) => {
+        const progressRow = data.team_progress.find((item) => item.module === row.module) || {};
+        return `
+          <tr>
+            <td>${row.module}</td>
+            <td>P${row.priority ?? "?"}</td>
+            ${data.team_members.map((name) => {
+              const hours = row.hours?.[name];
+              const progress = progressRow.progress?.[name];
+              if (hours == null && progress == null) return `<td class="empty">—</td>`;
+              return `
+                <td>
+                  <div class="cell-hours">${hours != null ? `${num(hours)}h` : ""}</div>
+                  ${progress != null ? `<div class="cell-progress">${pct(progress)}</div>` : ""}
+                </td>
+              `;
+            }).join("")}
+          </tr>
+        `;
+      }).join("");
+    }
+
+    function renderPhases(data) {
+      const cards = document.getElementById("phase-cards");
+      cards.innerHTML = data.phase_totals.map((phaseRow) => {
+        const progressRow = data.phase_progress.find((item) => item.phase === phaseRow.phase) || {};
+        const teamBars = data.team_members.map((name) => {
+          const total = phaseRow.totals?.[name];
+          const progress = progressRow.progress?.[name];
+          return `
+            <div class="phase-team-row">
+              <span class="phase-team-name">${name}</span>
+              <span class="phase-team-total">${total != null ? `${num(total)} items` : "—"}</span>
+              <div class="progress-row compact">
+                <div class="progress-track">
+                  <div class="progress-fill ${barClass(progress)}" style="width:${Math.max((progress ?? 0) * 100, 2)}%"></div>
+                </div>
+                <span class="progress-label">${pct(progress)}</span>
+              </div>
+            </div>
+          `;
+        }).join("");
+
+        return `
+          <article class="phase-card">
+            <div class="phase-card-header">
+              <h3>${phaseRow.phase}</h3>
+              <span class="phase-overall">${num(phaseRow.overall)} total</span>
+            </div>
+            <div class="phase-team-list">${teamBars}</div>
+          </article>
+        `;
+      }).join("");
+    }
+
+    async function loadScoreboard(forceRefresh = false) {
+      const refreshBtn = document.getElementById("refresh-btn");
+      const refreshIcon = document.getElementById("refresh-icon");
+      refreshBtn.disabled = true;
+      refreshIcon.classList.add("spinning");
+
+      try {
+        const url = forceRefresh ? "/api/scoreboard?refresh=1" : "/api/scoreboard";
+        const response = await fetch(url);
+        const data = await response.json();
+        if (!response.ok) {
+          document.querySelector(".subtitle").textContent = data.error || "Failed to load spreadsheet";
+          return;
+        }
+
+        scoreboardData = data;
+        renderHero(data);
+        renderModules(data);
+        renderTeam(data);
+        renderPhases(data);
+        document.getElementById("updated-at").textContent =
+          `Last updated ${new Date().toLocaleTimeString()} · auto-refreshes every 30s`;
+      } finally {
+        refreshBtn.disabled = false;
+        refreshIcon.classList.remove("spinning");
+      }
+    }
+
+    document.querySelectorAll(".tab").forEach((button) => {
+      button.addEventListener("click", () => {
+        document.querySelectorAll(".tab").forEach((tab) => tab.classList.remove("active"));
+        document.querySelectorAll(".panel").forEach((panel) => panel.classList.remove("active"));
+        button.classList.add("active");
+        document.getElementById(`panel-${button.dataset.tab}`).classList.add("active");
+      });
+    });
+
+    document.getElementById("refresh-btn").addEventListener("click", () => loadScoreboard(true));
+    document.getElementById("modal-close").addEventListener("click", closeModuleModal);
+    document.getElementById("module-modal").addEventListener("click", (event) => {
+      if (event.target.id === "module-modal") closeModuleModal();
+    });
+    document.addEventListener("keydown", (event) => {
+      if (event.key === "Escape") closeModuleModal();
+    });
+
+    document.getElementById("module-sort").addEventListener("change", (event) => {
+      moduleSort = event.target.value;
+      if (scoreboardData) renderModules(scoreboardData);
+    });
+
+    loadScoreboard();
+    setInterval(() => loadScoreboard(false), 30000);
+  </script>
+</body>
+</html>

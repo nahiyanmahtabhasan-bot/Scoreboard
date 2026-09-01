@@ -4,9 +4,9 @@ from __future__ import annotations
 
 import math
 from pathlib import Path
-from typing import Any, BinaryIO
+from typing import Any, BinaryIO, Sequence
 
-import pandas as pd
+from openpyxl import load_workbook
 
 TEAM_MEMBERS = ["Dhaval", "Syed", "Ahamed", "Yaseen", "Vaizhnavi", "Sneha"]
 
@@ -36,6 +36,8 @@ PHASE_SHORT_LABELS = {
     "Production": "Production",
 }
 
+Rows = Sequence[tuple[Any, ...]]
+
 
 def _num(value: Any) -> float | None:
     if value is None or (isinstance(value, float) and math.isnan(value)):
@@ -53,56 +55,75 @@ def _str(value: Any) -> str | None:
     return text or None
 
 
-def _parse_module_row(df: pd.DataFrame, idx: int) -> dict[str, Any]:
-    priority = _num(df.iloc[idx, 1])
+def _cell(rows: Rows, row_idx: int, col_idx: int) -> Any:
+    if row_idx >= len(rows):
+        return None
+    row = rows[row_idx]
+    if col_idx >= len(row):
+        return None
+    return row[col_idx]
+
+
+def _load_rows(source: str | Path | BinaryIO) -> Rows:
+    workbook = load_workbook(source, read_only=True, data_only=True)
+    try:
+        if "Scorecard" not in workbook.sheetnames:
+            raise ValueError("Scorecard sheet not found in spreadsheet")
+        worksheet = workbook["Scorecard"]
+        return list(worksheet.iter_rows(values_only=True))
+    finally:
+        workbook.close()
+
+
+def _parse_module_row(rows: Rows, idx: int) -> dict[str, Any]:
+    priority = _num(_cell(rows, idx, 1))
     return {
         "priority": int(priority) if priority is not None else None,
-        "module": _str(df.iloc[idx, 2]),
-        "overall": _num(df.iloc[idx, 3]),
-        "phases": {phase: _num(df.iloc[idx, 4 + i]) for i, phase in enumerate(PHASES)},
-        "pct_completed": _num(df.iloc[idx, 14]),
-        "total_items": _num(df.iloc[idx, 15]),
-        "completed_items": _num(df.iloc[idx, 16]),
+        "module": _str(_cell(rows, idx, 2)),
+        "overall": _num(_cell(rows, idx, 3)),
+        "phases": {phase: _num(_cell(rows, idx, 4 + i)) for i, phase in enumerate(PHASES)},
+        "pct_completed": _num(_cell(rows, idx, 14)),
+        "total_items": _num(_cell(rows, idx, 15)),
+        "completed_items": _num(_cell(rows, idx, 16)),
     }
 
 
 def _is_ongoing_module(module: dict[str, Any]) -> bool:
-    """Include modules that are in progress or not yet started; exclude fully complete."""
     pct = module.get("pct_completed")
     if pct is not None and pct >= 1.0:
         return False
     return module.get("priority") in (1, 2) and bool(module.get("module"))
 
 
-def _find_section_header(df: pd.DataFrame, start: int = 0) -> int | None:
-    for idx in range(start, len(df)):
-        if _str(df.iloc[idx, 1]) == "Priority" and _str(df.iloc[idx, 2]) == "Modules":
+def _find_section_header(rows: Rows, start: int = 0) -> int | None:
+    for idx in range(start, len(rows)):
+        if _str(_cell(rows, idx, 1)) == "Priority" and _str(_cell(rows, idx, 2)) == "Modules":
             return idx
     return None
 
 
-def _module_progress_section(df: pd.DataFrame) -> tuple[list[dict[str, Any]], dict[str, Any] | None]:
-    header_row = _find_section_header(df)
+def _module_progress_section(rows: Rows) -> tuple[list[dict[str, Any]], dict[str, Any] | None]:
+    header_row = _find_section_header(rows)
     if header_row is None:
         raise ValueError("Module progress section not found on Scorecard sheet")
 
     modules: list[dict[str, Any]] = []
     summary: dict[str, Any] | None = None
 
-    for idx in range(header_row + 1, len(df)):
-        module_name = _str(df.iloc[idx, 2])
+    for idx in range(header_row + 1, len(rows)):
+        module_name = _str(_cell(rows, idx, 2))
         if module_name == "Total Core":
             summary = {
-                "overall": _num(df.iloc[idx, 3]),
-                "pct_completed": _num(df.iloc[idx, 14]),
-                "total_items": _num(df.iloc[idx, 15]),
-                "completed_items": _num(df.iloc[idx, 16]),
+                "overall": _num(_cell(rows, idx, 3)),
+                "pct_completed": _num(_cell(rows, idx, 14)),
+                "total_items": _num(_cell(rows, idx, 15)),
+                "completed_items": _num(_cell(rows, idx, 16)),
             }
             break
         if not module_name:
             continue
 
-        row = _parse_module_row(df, idx)
+        row = _parse_module_row(rows, idx)
         if row["priority"] not in (1, 2):
             continue
         modules.append(row)
@@ -110,47 +131,47 @@ def _module_progress_section(df: pd.DataFrame) -> tuple[list[dict[str, Any]], di
     return modules, summary
 
 
-def _team_module_rows(df: pd.DataFrame, start: int, end: int, value_key: str) -> list[dict[str, Any]]:
-    rows: list[dict[str, Any]] = []
-    for idx in range(start, end + 1):
-        module = _str(df.iloc[idx, 2])
+def _team_module_rows(rows: Rows, start: int, end: int, value_key: str) -> list[dict[str, Any]]:
+    result: list[dict[str, Any]] = []
+    for idx in range(start, min(end + 1, len(rows))):
+        module = _str(_cell(rows, idx, 2))
         if not module or module == "Total Core":
             continue
-        priority = _num(df.iloc[idx, 1])
-        team_values = {member: _num(df.iloc[idx, 4 + i]) for i, member in enumerate(TEAM_MEMBERS)}
-        rows.append(
+        priority = _num(_cell(rows, idx, 1))
+        team_values = {member: _num(_cell(rows, idx, 4 + i)) for i, member in enumerate(TEAM_MEMBERS)}
+        result.append(
             {
                 "priority": int(priority) if priority is not None else None,
                 "module": module,
-                "overall": _num(df.iloc[idx, 3]),
+                "overall": _num(_cell(rows, idx, 3)),
                 value_key: team_values,
             }
         )
-    return rows
+    return result
 
 
-def _phase_team_rows(df: pd.DataFrame, start: int, end: int, value_key: str) -> list[dict[str, Any]]:
-    rows: list[dict[str, Any]] = []
-    for idx in range(start, end + 1):
-        phase = _str(df.iloc[idx, 2])
+def _phase_team_rows(rows: Rows, start: int, end: int, value_key: str) -> list[dict[str, Any]]:
+    result: list[dict[str, Any]] = []
+    for idx in range(start, min(end + 1, len(rows))):
+        phase = _str(_cell(rows, idx, 2))
         if not phase or phase == "Modules":
             continue
-        team_values = {member: _num(df.iloc[idx, 4 + i]) for i, member in enumerate(TEAM_MEMBERS)}
-        rows.append(
+        team_values = {member: _num(_cell(rows, idx, 4 + i)) for i, member in enumerate(TEAM_MEMBERS)}
+        result.append(
             {
                 "phase": phase,
-                "overall": _num(df.iloc[idx, 3]),
+                "overall": _num(_cell(rows, idx, 3)),
                 value_key: team_values,
             }
         )
-    return rows
+    return result
 
 
-def _find_team_sections(df: pd.DataFrame) -> tuple[int, int, int, int]:
+def _find_team_sections(rows: Rows) -> tuple[int, int, int, int]:
     headers = [
         idx
-        for idx in range(len(df))
-        if _str(df.iloc[idx, 1]) == "Priority" and _str(df.iloc[idx, 2]) == "Modules"
+        for idx in range(len(rows))
+        if _str(_cell(rows, idx, 1)) == "Priority" and _str(_cell(rows, idx, 2)) == "Modules"
     ]
     if len(headers) < 2:
         return 32, 54, 58, 80
@@ -159,8 +180,8 @@ def _find_team_sections(df: pd.DataFrame) -> tuple[int, int, int, int]:
     progress_header = headers[2] if len(headers) > 2 else workload_header + 26
 
     def section_end(header: int) -> int:
-        for idx in range(header + 1, len(df)):
-            if _str(df.iloc[idx, 2]) == "Total Core":
+        for idx in range(header + 1, len(rows)):
+            if _str(_cell(rows, idx, 2)) == "Total Core":
                 return idx - 1
         return header + 22
 
@@ -172,29 +193,52 @@ def _find_team_sections(df: pd.DataFrame) -> tuple[int, int, int, int]:
     )
 
 
-def parse_scorecard(source: str | Path | BinaryIO, *, source_label: str | None = None) -> dict[str, Any]:
-    df = pd.read_excel(source, sheet_name="Scorecard", header=None)
+def _find_phase_sections(rows: Rows) -> tuple[int, int, int, int]:
+    totals_start = totals_end = progress_start = progress_end = 0
+    phase_headers = 0
 
-    if source_label:
-        label = source_label
-    elif isinstance(source, (str, Path)):
-        label = str(Path(source).resolve())
+    for idx in range(len(rows)):
+        if _str(_cell(rows, idx, 2)) == "Modules" and _str(_cell(rows, idx, 3)) == "Overall":
+            phase_headers += 1
+            if phase_headers == 1:
+                totals_start = idx + 1
+            elif phase_headers == 2:
+                progress_start = idx + 1
+                totals_end = idx - 1
+                break
+
+    for idx in range(progress_start, len(rows)):
+        if not _str(_cell(rows, idx, 2)):
+            progress_end = idx - 1
+            break
     else:
-        label = "Live spreadsheet"
+        progress_end = min(progress_start + 9, len(rows) - 1)
 
-    all_modules, summary = _module_progress_section(df)
+    return totals_start, totals_end, progress_start, progress_end
+
+
+def parse_scorecard(source: str | Path | BinaryIO, *, source_label: str | None = None) -> dict[str, Any]:
+    if isinstance(source, (str, Path)):
+        label = source_label or str(Path(source).resolve())
+    else:
+        label = source_label or "Live spreadsheet"
+
+    rows = _load_rows(source)
+    all_modules, summary = _module_progress_section(rows)
     ongoing_modules = [module for module in all_modules if _is_ongoing_module(module)]
     ongoing_names = {module["module"] for module in ongoing_modules}
 
-    workload_start, workload_end, progress_start, progress_end = _find_team_sections(df)
+    workload_start, workload_end, progress_start, progress_end = _find_team_sections(rows)
+    totals_start, totals_end, progress_start_phases, progress_end_phases = _find_phase_sections(rows)
+
     team_workload = [
         row
-        for row in _team_module_rows(df, workload_start, workload_end, "hours")
+        for row in _team_module_rows(rows, workload_start, workload_end, "hours")
         if row["module"] in ongoing_names
     ]
     team_progress = [
         row
-        for row in _team_module_rows(df, progress_start, progress_end, "progress")
+        for row in _team_module_rows(rows, progress_start, progress_end, "progress")
         if row["module"] in ongoing_names
     ]
 
@@ -205,8 +249,8 @@ def parse_scorecard(source: str | Path | BinaryIO, *, source_label: str | None =
         "modules": ongoing_modules,
         "team_workload": team_workload,
         "team_progress": team_progress,
-        "phase_totals": _phase_team_rows(df, 85, 94, "totals"),
-        "phase_progress": _phase_team_rows(df, 97, 106, "progress"),
+        "phase_totals": _phase_team_rows(rows, totals_start, totals_end, "totals"),
+        "phase_progress": _phase_team_rows(rows, progress_start_phases, progress_end_phases, "progress"),
         "team_members": TEAM_MEMBERS,
         "phases": PHASES,
         "phase_labels": PHASE_SHORT_LABELS,
