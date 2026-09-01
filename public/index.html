@@ -215,14 +215,18 @@
               <h3>${mod.module}</h3>
               ${badge}
             </div>
-            <div class="module-card-body">
+            <div class="module-completion">
               <span class="module-pct">${pct(completed)}</span>
+              <span class="module-pct-label">complete</span>
+            </div>
+            <div class="progress-row module-progress">
               <div class="progress-track">
                 <div class="progress-fill ${barClass(completed)}" style="width:${Math.max(completed * 100, completed > 0 ? 2 : 0)}%"></div>
               </div>
             </div>
             <div class="module-meta">
-              <span>${num(mod.completed_items)} / ${num(mod.total_items)}</span>
+              <span>${num(mod.completed_items)} / ${num(mod.total_items)} items</span>
+              <span class="module-hint">View stages →</span>
             </div>
           </button>
         `;
