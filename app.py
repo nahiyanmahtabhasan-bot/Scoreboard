@@ -64,7 +64,11 @@ def _load_data(*, force_refresh: bool = False) -> dict:
 
     now = time.time()
     if not force_refresh and _cache and now - _cache[0] < CACHE_TTL_SECONDS:
-        return _cache[1]
+        return {
+            **_cache[1],
+            "fetched_at": _cache[0],
+            "from_cache": True,
+        }
 
     local_path = _local_xlsx_path()
     if local_path:
@@ -89,7 +93,11 @@ def _load_data(*, force_refresh: bool = False) -> dict:
         data["source_url"] = GOOGLE_SHEET_URL
 
     _cache = (now, data)
-    return data
+    return {
+        **data,
+        "fetched_at": now,
+        "from_cache": False,
+    }
 
 
 @app.get("/api/health")

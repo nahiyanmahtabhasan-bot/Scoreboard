@@ -476,8 +476,12 @@
         }
         renderTeam(data);
         renderPhases(data);
+        const syncedAt = data.fetched_at
+          ? new Date(data.fetched_at * 1000).toLocaleTimeString()
+          : new Date().toLocaleTimeString();
+        const cacheNote = data.from_cache ? " · cached" : " · live from sheet";
         document.getElementById("updated-at").textContent =
-          `Last updated ${new Date().toLocaleTimeString()} · auto-refreshes every 30s`;
+          `Sheet synced ${syncedAt}${cacheNote} · auto-refreshes every 30s`;
       } finally {
         refreshBtn.disabled = false;
         refreshIcon.classList.remove("spinning");
@@ -524,8 +528,8 @@
       if (scoreboardData) renderModules(scoreboardData);
     });
 
-    loadScoreboard();
-    setInterval(() => loadScoreboard(false), 30000);
+    loadScoreboard(true);
+    setInterval(() => loadScoreboard(true), 30000);
 
     const SCALE_KEY = "scoreboard-page-scale";
     const scaleInput = document.getElementById("page-scale");
