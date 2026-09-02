@@ -91,6 +91,53 @@
   </div>
   </div>
 
+  <div class="slideshow-control" id="slideshow-control">
+    <button class="slideshow-toggle" id="slideshow-toggle" type="button" aria-label="Slideshow mode" title="Slideshow mode">
+      <span aria-hidden="true">▶</span>
+    </button>
+    <div class="slideshow-panel hidden" id="slideshow-panel">
+      <p class="slideshow-panel-title">Slideshow</p>
+      <fieldset class="slideshow-slides">
+        <legend>Pages to show</legend>
+        <label class="slideshow-option">
+          <input type="checkbox" id="slide-modules" checked>
+          <span>Module Progress</span>
+        </label>
+        <label class="slideshow-filter-row hidden" id="slide-modules-filter-row">
+          <span>Filter</span>
+          <select id="slide-modules-filter">
+            <option value="all">All modules</option>
+            <option value="priority">Priority (P1 &amp; P2)</option>
+            <option value="completed">Completed</option>
+            <option value="pending">Pending</option>
+            <option value="ongoing">Ongoing</option>
+            <option value="not-started">Not started</option>
+          </select>
+        </label>
+        <label class="slideshow-option">
+          <input type="checkbox" id="slide-team">
+          <span>Team Workload</span>
+        </label>
+        <label class="slideshow-option">
+          <input type="checkbox" id="slide-phases">
+          <span>Phase Breakdown</span>
+        </label>
+      </fieldset>
+      <label class="slideshow-duration">
+        <span>Minutes per page</span>
+        <input type="number" id="slide-minutes" min="0.5" max="30" step="0.5" value="2">
+      </label>
+      <div class="slideshow-actions">
+        <button class="slideshow-start" id="slideshow-start" type="button">Start</button>
+        <button class="slideshow-stop hidden" id="slideshow-stop" type="button">Stop</button>
+      </div>
+    </div>
+  </div>
+
+  <div class="slideshow-status hidden" id="slideshow-status" aria-live="polite">
+    <span id="slideshow-status-label">Slideshow</span>
+  </div>
+
   <div class="scale-control" id="scale-control">
     <button class="scale-toggle" id="scale-toggle" type="button" aria-label="Resize page" title="Resize page">
       <span aria-hidden="true">⤢</span>
@@ -140,23 +187,23 @@
 
     const isCompleted = (mod) => mod.status === "completed" || (mod.pct_completed ?? 0) >= 1;
 
-    function moduleMatchesFilter(mod) {
+    function moduleMatchesFilter(mod, filter = moduleFilter) {
       const status = mod.status || "ongoing";
-      if (moduleFilter === "all") return true;
-      if (moduleFilter === "priority") return mod.priority === 1 || mod.priority === 2;
-      if (moduleFilter === "completed") return isCompleted(mod);
-      if (moduleFilter === "pending") return status === "ongoing" || status === "not-started";
-      if (moduleFilter === "ongoing") return status === "ongoing";
-      if (moduleFilter === "not-started") return status === "not-started";
+      if (filter === "all") return true;
+      if (filter === "priority") return mod.priority === 1 || mod.priority === 2;
+      if (filter === "completed") return isCompleted(mod);
+      if (filter === "pending") return status === "ongoing" || status === "not-started";
+      if (filter === "ongoing") return status === "ongoing";
+      if (filter === "not-started") return status === "not-started";
       return true;
     }
 
-    function filterModules(modules) {
-      return modules.filter(moduleMatchesFilter);
+    function filterModules(modules, filter = moduleFilter) {
+      return modules.filter((mod) => moduleMatchesFilter(mod, filter));
     }
 
-    function sortModules(modules) {
-      const pinCompleted = moduleFilter === "all";
+    function sortModules(modules, filter = moduleFilter) {
+      const pinCompleted = filter === "all";
       const completed = pinCompleted ? modules.filter(isCompleted) : [];
       const rest = pinCompleted ? modules.filter((mod) => !isCompleted(mod)) : [...modules];
       if (moduleSort === "priority") {
@@ -206,9 +253,10 @@
       `;
     }
 
-    function renderModules(data) {
+    function renderModules(data, filterOverride) {
       const grid = document.getElementById("module-grid");
-      const modules = sortModules(filterModules(data.modules));
+      const activeFilter = filterOverride ?? moduleFilter;
+      const modules = sortModules(filterModules(data.modules, activeFilter), activeFilter);
       const labels = data.phase_labels || {};
 
       if (!modules.length) {
@@ -421,7 +469,11 @@
 
         scoreboardData = data;
         renderHero(data);
-        renderModules(data);
+        if (slideshow.running && slideshow.slides[slideshow.index]?.type === "modules") {
+          renderModules(data, slideshow.slides[slideshow.index].filter);
+        } else {
+          renderModules(data);
+        }
         renderTeam(data);
         renderPhases(data);
         document.getElementById("updated-at").textContent =
@@ -432,12 +484,19 @@
       }
     }
 
+    function switchTab(tabName) {
+      document.querySelectorAll(".tab").forEach((tab) => {
+        tab.classList.toggle("active", tab.dataset.tab === tabName);
+      });
+      document.querySelectorAll(".panel").forEach((panel) => {
+        panel.classList.toggle("active", panel.id === `panel-${tabName}`);
+      });
+    }
+
     document.querySelectorAll(".tab").forEach((button) => {
       button.addEventListener("click", () => {
-        document.querySelectorAll(".tab").forEach((tab) => tab.classList.remove("active"));
-        document.querySelectorAll(".panel").forEach((panel) => panel.classList.remove("active"));
-        button.classList.add("active");
-        document.getElementById(`panel-${button.dataset.tab}`).classList.add("active");
+        if (slideshow.running) return;
+        switchTab(button.dataset.tab);
       });
     });
 
@@ -447,7 +506,12 @@
       if (event.target.id === "module-modal") closeModuleModal();
     });
     document.addEventListener("keydown", (event) => {
-      if (event.key === "Escape") closeModuleModal();
+      if (event.key !== "Escape") return;
+      if (slideshow.running) {
+        stopSlideshow();
+        return;
+      }
+      closeModuleModal();
     });
 
     document.getElementById("module-sort").addEventListener("change", (event) => {
@@ -498,7 +562,191 @@
       if (!event.target.closest("#scale-control")) {
         scalePanel.classList.add("hidden");
       }
+      if (!event.target.closest("#slideshow-control")) {
+        document.getElementById("slideshow-panel").classList.add("hidden");
+      }
     });
+
+    const SLIDESHOW_KEY = "scoreboard-slideshow-config";
+    const slideshowPanel = document.getElementById("slideshow-panel");
+    const slideshowToggle = document.getElementById("slideshow-toggle");
+    const slideshowStatus = document.getElementById("slideshow-status");
+    const slideModulesFilterRow = document.getElementById("slide-modules-filter-row");
+
+    const slideshow = {
+      running: false,
+      slides: [],
+      index: 0,
+      rafId: null,
+      slideStart: 0,
+      slideDurationMs: 0,
+      scrollPanel: null,
+    };
+
+    function readSlideshowConfig() {
+      return {
+        modules: document.getElementById("slide-modules").checked,
+        modulesFilter: document.getElementById("slide-modules-filter").value,
+        team: document.getElementById("slide-team").checked,
+        phases: document.getElementById("slide-phases").checked,
+        minutes: Number(document.getElementById("slide-minutes").value) || 2,
+      };
+    }
+
+    function saveSlideshowConfig(config) {
+      localStorage.setItem(SLIDESHOW_KEY, JSON.stringify(config));
+    }
+
+    function loadSlideshowConfig() {
+      try {
+        const saved = JSON.parse(localStorage.getItem(SLIDESHOW_KEY));
+        if (!saved) return;
+        document.getElementById("slide-modules").checked = saved.modules !== false;
+        document.getElementById("slide-modules-filter").value = saved.modulesFilter || "all";
+        document.getElementById("slide-team").checked = !!saved.team;
+        document.getElementById("slide-phases").checked = !!saved.phases;
+        document.getElementById("slide-minutes").value = saved.minutes ?? 2;
+      } catch (_) { /* ignore */ }
+      slideModulesFilterRow.classList.toggle("hidden", !document.getElementById("slide-modules").checked);
+    }
+
+    function buildSlideQueue(config) {
+      const queue = [];
+      if (config.modules) {
+        queue.push({ type: "modules", filter: config.modulesFilter, label: "Module Progress" });
+      }
+      if (config.team) {
+        queue.push({ type: "team", label: "Team Workload", scroll: true });
+      }
+      if (config.phases) {
+        queue.push({ type: "phases", label: "Phase Breakdown", scroll: true });
+      }
+      return queue;
+    }
+
+    function getScrollElement(slide) {
+      if (!slide.scroll) return null;
+      if (slide.type === "team") {
+        return document.querySelector("#panel-team .table-wrap");
+      }
+      return document.getElementById(`panel-${slide.type}`);
+    }
+
+    function cancelSlideshowAnimation() {
+      if (slideshow.rafId != null) {
+        cancelAnimationFrame(slideshow.rafId);
+        slideshow.rafId = null;
+      }
+    }
+
+    function resetPanelScroll(panel) {
+      if (panel) panel.scrollTop = 0;
+    }
+
+    function showSlide(slide) {
+      switchTab(slide.type);
+      if (slide.type === "modules" && scoreboardData) {
+        renderModules(scoreboardData, slide.filter);
+      }
+      const panel = slide.scroll ? document.getElementById(`panel-${slide.type}`) : null;
+      if (panel) panel.scrollTop = 0;
+      slideshow.scrollPanel = getScrollElement(slide);
+      resetPanelScroll(slideshow.scrollPanel);
+    }
+
+    function advanceSlideshow() {
+      if (!slideshow.running || !slideshow.slides.length) return;
+      slideshow.index = (slideshow.index + 1) % slideshow.slides.length;
+      beginSlide();
+    }
+
+    function beginSlide() {
+      cancelSlideshowAnimation();
+      const slide = slideshow.slides[slideshow.index];
+      showSlide(slide);
+      slideshow.slideStart = performance.now();
+      slideshow.slideDurationMs = slideshow.minutes * 60 * 1000;
+
+      document.getElementById("slideshow-status-label").textContent = slide.label;
+
+      const tick = (now) => {
+        if (!slideshow.running) return;
+        const elapsed = now - slideshow.slideStart;
+
+        if (slideshow.scrollPanel) {
+          const maxScroll = slideshow.scrollPanel.scrollHeight - slideshow.scrollPanel.clientHeight;
+          if (maxScroll > 0) {
+            const progress = Math.min(1, elapsed / slideshow.slideDurationMs);
+            slideshow.scrollPanel.scrollTop = progress * maxScroll;
+          }
+        }
+
+        if (elapsed >= slideshow.slideDurationMs) {
+          advanceSlideshow();
+          return;
+        }
+        slideshow.rafId = requestAnimationFrame(tick);
+      };
+
+      slideshow.rafId = requestAnimationFrame(tick);
+    }
+
+    function startSlideshow() {
+      const config = readSlideshowConfig();
+      saveSlideshowConfig(config);
+      const queue = buildSlideQueue(config);
+      if (!queue.length) {
+        alert("Select at least one page for the slideshow.");
+        return;
+      }
+
+      slideshow.running = true;
+      slideshow.slides = queue;
+      slideshow.index = 0;
+      slideshow.minutes = Math.min(30, Math.max(0.5, config.minutes));
+
+      document.body.classList.add("slideshow-mode");
+      slideshowPanel.classList.add("hidden");
+      slideshowStatus.classList.remove("hidden");
+      document.getElementById("slideshow-start").classList.add("hidden");
+      document.getElementById("slideshow-stop").classList.remove("hidden");
+      slideshowToggle.classList.add("active");
+      slideshowToggle.querySelector("span").textContent = "■";
+
+      beginSlide();
+    }
+
+    function stopSlideshow() {
+      slideshow.running = false;
+      cancelSlideshowAnimation();
+      slideshow.scrollPanel = null;
+
+      document.body.classList.remove("slideshow-mode");
+      slideshowStatus.classList.add("hidden");
+      document.getElementById("slideshow-start").classList.remove("hidden");
+      document.getElementById("slideshow-stop").classList.add("hidden");
+      slideshowToggle.classList.remove("active");
+      slideshowToggle.querySelector("span").textContent = "▶";
+
+      if (scoreboardData) renderModules(scoreboardData);
+    }
+
+    document.getElementById("slide-modules").addEventListener("change", (event) => {
+      slideModulesFilterRow.classList.toggle("hidden", !event.target.checked);
+    });
+
+    slideshowToggle.addEventListener("click", () => {
+      if (slideshow.running) {
+        stopSlideshow();
+        return;
+      }
+      slideshowPanel.classList.toggle("hidden");
+    });
+
+    document.getElementById("slideshow-start").addEventListener("click", startSlideshow);
+    document.getElementById("slideshow-stop").addEventListener("click", stopSlideshow);
+
+    loadSlideshowConfig();
   </script>
 </body>
 </html>

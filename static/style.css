@@ -236,6 +236,218 @@ h1 {
   background: rgba(255, 255, 255, 0.1);
 }
 
+/* ── Slideshow control ── */
+
+.slideshow-control {
+  position: fixed;
+  left: 16px;
+  bottom: 16px;
+  z-index: 50;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 8px;
+}
+
+.slideshow-toggle {
+  width: 40px;
+  height: 40px;
+  border-radius: 999px;
+  border: 1px solid rgba(52, 211, 153, 0.35);
+  background: rgba(18, 26, 49, 0.95);
+  color: var(--text);
+  font-size: 0.95rem;
+  line-height: 1;
+  cursor: pointer;
+  box-shadow: var(--shadow);
+  transition: 0.2s ease;
+}
+
+.slideshow-toggle:hover,
+.slideshow-toggle.active {
+  background: rgba(52, 211, 153, 0.18);
+  border-color: rgba(52, 211, 153, 0.5);
+}
+
+.slideshow-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  width: min(280px, calc(100vw - 32px));
+  padding: 14px 16px;
+  border-radius: 14px;
+  border: 1px solid var(--border);
+  background: rgba(18, 26, 49, 0.96);
+  box-shadow: var(--shadow);
+  color: var(--text);
+  font-size: 0.82rem;
+}
+
+.slideshow-panel.hidden {
+  display: none;
+}
+
+.slideshow-panel-title {
+  margin: 0;
+  font-weight: 600;
+  font-size: 0.9rem;
+}
+
+.slideshow-slides {
+  margin: 0;
+  padding: 0;
+  border: none;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.slideshow-slides legend {
+  padding: 0;
+  margin-bottom: 4px;
+  color: var(--text-muted);
+  font-size: 0.75rem;
+}
+
+.slideshow-option {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  cursor: pointer;
+}
+
+.slideshow-option input {
+  accent-color: var(--success);
+}
+
+.slideshow-filter-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-left: 22px;
+  color: var(--text-muted);
+  font-size: 0.78rem;
+}
+
+.slideshow-filter-row.hidden {
+  display: none;
+}
+
+.slideshow-filter-row select {
+  flex: 1;
+  padding: 4px 8px;
+  border-radius: 8px;
+  border: 1px solid var(--border);
+  background: var(--bg-elevated);
+  color: var(--text);
+  font: inherit;
+  font-size: 0.78rem;
+}
+
+.slideshow-duration {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  color: var(--text-muted);
+}
+
+.slideshow-duration input {
+  width: 72px;
+  padding: 4px 8px;
+  border-radius: 8px;
+  border: 1px solid var(--border);
+  background: var(--bg-elevated);
+  color: var(--text);
+  font: inherit;
+  font-size: 0.82rem;
+  font-family: "JetBrains Mono", monospace;
+}
+
+.slideshow-actions {
+  display: flex;
+  gap: 8px;
+}
+
+.slideshow-start,
+.slideshow-stop {
+  flex: 1;
+  padding: 8px 12px;
+  border-radius: 10px;
+  border: 1px solid rgba(52, 211, 153, 0.35);
+  background: rgba(52, 211, 153, 0.14);
+  color: var(--text);
+  font: inherit;
+  font-size: 0.82rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: 0.2s ease;
+}
+
+.slideshow-start:hover,
+.slideshow-stop:hover {
+  background: rgba(52, 211, 153, 0.24);
+}
+
+.slideshow-stop {
+  border-color: rgba(248, 113, 113, 0.35);
+  background: rgba(248, 113, 113, 0.12);
+}
+
+.slideshow-stop:hover {
+  background: rgba(248, 113, 113, 0.22);
+}
+
+.slideshow-stop.hidden,
+.slideshow-start.hidden {
+  display: none;
+}
+
+.slideshow-status {
+  position: fixed;
+  top: 12px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 60;
+  padding: 8px 18px;
+  border-radius: 999px;
+  border: 1px solid rgba(52, 211, 153, 0.35);
+  background: rgba(18, 26, 49, 0.92);
+  box-shadow: var(--shadow);
+  font-size: 0.82rem;
+  font-weight: 600;
+  pointer-events: none;
+}
+
+.slideshow-status.hidden {
+  display: none;
+}
+
+body.slideshow-mode .tabs,
+body.slideshow-mode .panel-controls,
+body.slideshow-mode .refresh-btn {
+  pointer-events: none;
+  opacity: 0.45;
+}
+
+body.slideshow-mode .module-card {
+  pointer-events: none;
+}
+
+body.slideshow-mode #panel-team.active {
+  overflow: hidden;
+}
+
+body.slideshow-mode #panel-team .table-wrap {
+  flex: 1;
+  min-height: 0;
+}
+
+body.slideshow-mode #panel-phases.active {
+  scroll-behavior: auto;
+}
+
 .hero-stats {
   display: grid;
   grid-template-columns: repeat(4, minmax(0, 1fr));
@@ -1042,6 +1254,22 @@ footer {
   .scale-control {
     right: 24px;
     bottom: 24px;
+  }
+
+  .slideshow-control {
+    left: 24px;
+    bottom: 24px;
+  }
+
+  .slideshow-toggle {
+    width: 48px;
+    height: 48px;
+    font-size: 1.1rem;
+  }
+
+  .slideshow-panel {
+    width: min(320px, calc(100vw - 48px));
+    font-size: 0.9rem;
   }
 
   .scale-toggle {
