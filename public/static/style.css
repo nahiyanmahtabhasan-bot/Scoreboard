@@ -56,7 +56,7 @@ body.page-zoomed {
   width: 100%;
   max-width: 1600px;
   margin: 0 auto;
-  padding: 12px 16px 8px;
+  padding: 40px 16px 8px;
   overflow: hidden;
   zoom: var(--page-scale);
 }
@@ -404,12 +404,38 @@ h1 {
   display: none;
 }
 
+.page-date {
+  position: fixed;
+  top: 10px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 55;
+  padding: 6px 16px;
+  border-radius: 999px;
+  border: 1px solid var(--border);
+  background: rgba(18, 26, 49, 0.88);
+  box-shadow: var(--shadow);
+  color: var(--text);
+  font-size: 0.82rem;
+  font-weight: 600;
+  letter-spacing: 0.01em;
+  white-space: nowrap;
+  pointer-events: none;
+}
+
+body.slideshow-mode .page-date {
+  display: none;
+}
+
 .slideshow-status {
   position: fixed;
   top: 12px;
   left: 50%;
   transform: translateX(-50%);
   z-index: 60;
+  display: flex;
+  align-items: center;
+  gap: 10px;
   padding: 8px 18px;
   border-radius: 999px;
   border: 1px solid rgba(52, 211, 153, 0.35);
@@ -418,10 +444,20 @@ h1 {
   font-size: 0.82rem;
   font-weight: 600;
   pointer-events: none;
+  white-space: nowrap;
 }
 
 .slideshow-status.hidden {
   display: none;
+}
+
+.slideshow-status-sep {
+  color: rgba(148, 163, 184, 0.7);
+}
+
+#slideshow-status-date {
+  color: var(--text);
+  font-weight: 500;
 }
 
 body.slideshow-mode .tabs,
@@ -497,7 +533,7 @@ body.slideshow-mode #panel-phases.active {
 
 .stat-label {
   grid-column: 1;
-  color: var(--text-muted);
+  color: var(--text);
   font-size: 0.72rem;
   white-space: nowrap;
 }
@@ -514,7 +550,7 @@ body.slideshow-mode #panel-phases.active {
 
 .stat-detail {
   grid-column: 1;
-  color: var(--text-muted);
+  color: var(--text);
   font-size: 0.68rem;
   white-space: nowrap;
 }
@@ -1041,7 +1077,7 @@ main {
   margin: 0 0 6px;
 }
 
-.team-hours {
+.team-tasks {
   margin: 0 0 12px;
   color: var(--text-muted);
   font-size: 0.9rem;
@@ -1082,7 +1118,7 @@ td.empty {
   color: rgba(148, 163, 184, 0.5);
 }
 
-.cell-hours {
+.cell-tasks {
   font-family: "JetBrains Mono", monospace;
   font-size: 0.85rem;
 }
@@ -1153,7 +1189,7 @@ footer {
 @media (min-width: 1800px) {
   .page {
     max-width: 1920px;
-    padding: 14px 24px 10px;
+    padding: 48px 24px 10px;
   }
 
   .eyebrow {
@@ -1259,6 +1295,13 @@ footer {
   .slideshow-control {
     left: 24px;
     bottom: 24px;
+  }
+
+  .page-date,
+  .slideshow-status {
+    top: 16px;
+    font-size: 0.95rem;
+    padding: 8px 20px;
   }
 
   .slideshow-toggle {

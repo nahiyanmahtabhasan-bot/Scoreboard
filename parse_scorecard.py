@@ -236,7 +236,7 @@ def parse_scorecard(source: str | Path | BinaryIO, *, source_label: str | None =
 
     team_workload = [
         row
-        for row in _team_module_rows(rows, workload_start, workload_end, "hours")
+        for row in _team_module_rows(rows, workload_start, workload_end, "tasks")
         if row["module"] in module_names
     ]
     team_progress = [

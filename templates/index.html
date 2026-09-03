@@ -10,6 +10,8 @@
   <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=JetBrains+Mono:wght@500;600&display=swap" rel="stylesheet">
 </head>
 <body>
+  <div class="page-date" id="page-date" aria-live="polite"></div>
+
   <div class="scale-viewport">
   <div class="page">
     <header class="hero">
@@ -65,7 +67,7 @@
       <section class="panel" id="panel-team">
         <div class="panel-header">
           <h2>Team Allocation & Progress</h2>
-          <p>Hours assigned and completion rate by team member</p>
+          <p>Tasks completed and completion % by team member</p>
         </div>
         <div class="team-summary" id="team-summary"></div>
         <div class="table-wrap">
@@ -135,6 +137,8 @@
   </div>
 
   <div class="slideshow-status hidden" id="slideshow-status" aria-live="polite">
+    <span id="slideshow-status-date"></span>
+    <span class="slideshow-status-sep" aria-hidden="true">·</span>
     <span id="slideshow-status-label">Slideshow</span>
   </div>
 
@@ -175,6 +179,24 @@
 
     const pct = (value) => value == null ? "—" : `${Math.round(value * 100)}%`;
     const num = (value) => value == null ? "—" : Math.round(value).toLocaleString();
+
+    function formatPageDate(date = new Date()) {
+      return date.toLocaleDateString(undefined, {
+        weekday: "long",
+        day: "numeric",
+        month: "long",
+        year: "numeric",
+      });
+    }
+
+    function updatePageDate() {
+      const text = formatPageDate();
+      document.getElementById("page-date").textContent = text;
+      document.getElementById("slideshow-status-date").textContent = text;
+    }
+
+    updatePageDate();
+    setInterval(updatePageDate, 60000);
 
     const barClass = (value) => {
       if (value == null) return "bar-none";
@@ -357,7 +379,7 @@
       const totals = Object.fromEntries(data.team_members.map((name) => [name, 0]));
       data.team_workload.forEach((row) => {
         data.team_members.forEach((name) => {
-          totals[name] += row.hours?.[name] ?? 0;
+          totals[name] += row.tasks?.[name] ?? 0;
         });
       });
 
@@ -376,12 +398,12 @@
         return `
           <article class="team-card">
             <h3>${name}</h3>
-            <p class="team-hours">${num(totals[name])} hrs allocated</p>
+            <p class="team-tasks">${num(totals[name])} tasks completed</p>
             <div class="progress-row compact">
               <div class="progress-track">
                 <div class="progress-fill ${barClass(avgProgress)}" style="width:${Math.max((avgProgress ?? 0) * 100, 2)}%"></div>
               </div>
-              <span class="progress-label">${pct(avgProgress)}</span>
+              <span class="progress-label">${pct(avgProgress)} avg</span>
             </div>
           </article>
         `;
@@ -404,12 +426,12 @@
             <td>${row.module}</td>
             <td>P${row.priority ?? "?"}</td>
             ${data.team_members.map((name) => {
-              const hours = row.hours?.[name];
+              const tasks = row.tasks?.[name];
               const progress = progressRow.progress?.[name];
-              if (hours == null && progress == null) return `<td class="empty">—</td>`;
+              if (tasks == null && progress == null) return `<td class="empty">—</td>`;
               return `
                 <td>
-                  <div class="cell-hours">${hours != null ? `${num(hours)}h` : ""}</div>
+                  <div class="cell-tasks">${tasks != null ? num(tasks) : ""}</div>
                   ${progress != null ? `<div class="cell-progress">${pct(progress)}</div>` : ""}
                 </td>
               `;
@@ -671,6 +693,7 @@
       slideshow.slideStart = performance.now();
       slideshow.slideDurationMs = slideshow.minutes * 60 * 1000;
 
+      document.getElementById("slideshow-status-date").textContent = formatPageDate();
       document.getElementById("slideshow-status-label").textContent = slide.label;
 
       const tick = (now) => {
