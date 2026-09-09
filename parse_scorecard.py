@@ -64,12 +64,12 @@ def _cell(rows: Rows, row_idx: int, col_idx: int) -> Any:
     return row[col_idx]
 
 
-def _load_rows(source: str | Path | BinaryIO) -> Rows:
+def _load_rows(source: str | Path | BinaryIO, *, sheet_name: str = "Scorecard") -> Rows:
     workbook = load_workbook(source, read_only=True, data_only=True)
     try:
-        if "Scorecard" not in workbook.sheetnames:
-            raise ValueError("Scorecard sheet not found in spreadsheet")
-        worksheet = workbook["Scorecard"]
+        if sheet_name not in workbook.sheetnames:
+            raise ValueError(f"Sheet '{sheet_name}' not found in spreadsheet")
+        worksheet = workbook[sheet_name]
         return list(worksheet.iter_rows(values_only=True))
     finally:
         workbook.close()
@@ -195,20 +195,27 @@ def _find_team_sections(rows: Rows) -> tuple[int, int, int, int]:
     )
 
 
+def _is_phase_matrix_header(rows: Rows, idx: int) -> bool:
+    """Phase matrices: Modules | Overall | team… without a Priority column."""
+    if _str(_cell(rows, idx, 1)) == "Priority":
+        return False
+    if _str(_cell(rows, idx, 2)) != "Modules" or _str(_cell(rows, idx, 3)) != "Overall":
+        return False
+    return _str(_cell(rows, idx, 4)) in TEAM_MEMBERS
+
+
 def _find_phase_sections(rows: Rows) -> tuple[int, int, int, int]:
-    totals_start = totals_end = progress_start = progress_end = 0
-    phase_headers = 0
+    headers = [idx for idx in range(len(rows)) if _is_phase_matrix_header(rows, idx)]
+    if len(headers) < 2:
+        # Legacy fallback near historical Intrakore layout
+        return 85, 94, 97, 106
 
-    for idx in range(len(rows)):
-        if _str(_cell(rows, idx, 2)) == "Modules" and _str(_cell(rows, idx, 3)) == "Overall":
-            phase_headers += 1
-            if phase_headers == 1:
-                totals_start = idx + 1
-            elif phase_headers == 2:
-                progress_start = idx + 1
-                totals_end = idx - 1
-                break
+    totals_header, progress_header = headers[0], headers[1]
+    totals_start = totals_header + 1
+    progress_start = progress_header + 1
+    totals_end = progress_header - 1
 
+    progress_end = progress_start + 9
     for idx in range(progress_start, len(rows)):
         if not _str(_cell(rows, idx, 2)):
             progress_end = idx - 1
@@ -219,13 +226,18 @@ def _find_phase_sections(rows: Rows) -> tuple[int, int, int, int]:
     return totals_start, totals_end, progress_start, progress_end
 
 
-def parse_scorecard(source: str | Path | BinaryIO, *, source_label: str | None = None) -> dict[str, Any]:
+def parse_scorecard(
+    source: str | Path | BinaryIO,
+    *,
+    source_label: str | None = None,
+    sheet_name: str = "Scorecard",
+) -> dict[str, Any]:
     if isinstance(source, (str, Path)):
         label = source_label or str(Path(source).resolve())
     else:
         label = source_label or "Live spreadsheet"
 
-    rows = _load_rows(source)
+    rows = _load_rows(source, sheet_name=sheet_name)
     all_modules, summary = _module_progress_section(rows)
     for module in all_modules:
         module["status"] = _module_status(module)
@@ -246,8 +258,9 @@ def parse_scorecard(source: str | Path | BinaryIO, *, source_label: str | None =
     ]
 
     return {
+        "mode": "scorecard",
         "source_file": label,
-        "source_sheet": "Scorecard",
+        "source_sheet": sheet_name,
         "summary": summary or {},
         "modules": all_modules,
         "team_workload": team_workload,

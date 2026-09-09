@@ -20,20 +20,27 @@
           <p class="eyebrow">Intrakore · Project Plan</p>
           <h1>Live Scoreboard</h1>
         </div>
-        <button class="refresh-btn" id="refresh-btn" type="button" aria-label="Refresh scoreboard">
-          <span class="refresh-icon" id="refresh-icon">↻</span>
-          Refresh
-        </button>
+        <div class="hero-actions">
+          <button class="sources-btn" id="sources-btn" type="button" aria-label="Configure sources">
+            Sources
+          </button>
+          <button class="refresh-btn" id="refresh-btn" type="button" aria-label="Refresh scoreboard">
+            <span class="refresh-icon" id="refresh-icon">↻</span>
+            Refresh
+          </button>
+        </div>
       </div>
       <p class="subtitle" id="source-file">Loading spreadsheet…</p>
       <div class="hero-stats" id="hero-stats"></div>
     </header>
 
-    <nav class="tabs">
+    <nav class="tabs" id="scorecard-tabs">
       <button class="tab active" data-tab="modules">Module Progress</button>
       <button class="tab" data-tab="team">Team Workload</button>
       <button class="tab" data-tab="phases">Phase Breakdown</button>
     </nav>
+
+    <nav class="tabs hidden" id="generic-tabs"></nav>
 
     <main>
       <section class="panel active" id="panel-modules">
@@ -81,9 +88,20 @@
       <section class="panel" id="panel-phases">
         <div class="panel-header">
           <h2>Phase Totals & Progress</h2>
-          <p>Work distribution and completion by delivery phase</p>
         </div>
-        <div class="phase-cards" id="phase-cards"></div>
+        <div class="table-wrap phase-table-wrap">
+          <table id="phase-table">
+            <thead></thead>
+            <tbody></tbody>
+          </table>
+        </div>
+      </section>
+
+      <section class="panel hidden" id="panel-generic">
+        <div class="panel-header panel-header-row">
+          <h2 id="generic-board-title">Board</h2>
+        </div>
+        <div id="generic-board-body" class="generic-board-body"></div>
       </section>
     </main>
 
@@ -93,13 +111,40 @@
   </div>
   </div>
 
+  <div class="sources-backdrop hidden" id="sources-modal" aria-hidden="true">
+    <div class="sources-dialog" role="dialog" aria-modal="true" aria-labelledby="sources-title">
+      <div class="sources-dialog-header">
+        <h2 id="sources-title">Data sources</h2>
+        <button class="modal-close" id="sources-close" type="button" aria-label="Close">×</button>
+      </div>
+      <p class="sources-help">
+        Configure Google Sheets, Word/Google Docs, Google Forms (response sheet), or Microsoft Forms.
+        Config is saved in this browser and can be shared via URL or JSON.
+      </p>
+      <div class="sources-toolbar">
+        <button type="button" id="source-add-btn" class="sources-action">Add source</button>
+        <button type="button" id="source-share-btn" class="sources-action">Copy share link</button>
+        <button type="button" id="source-export-btn" class="sources-action">Export JSON</button>
+        <label class="sources-import-label sources-action">
+          Import JSON
+          <input type="file" id="source-import-file" accept="application/json,.json" hidden>
+        </label>
+      </div>
+      <div id="source-editor" class="source-editor hidden"></div>
+      <div id="sources-list" class="sources-list"></div>
+      <p class="sources-ms-status" id="sources-ms-status"></p>
+    </div>
+  </div>
+
+  <div class="toast hidden" id="toast" role="status" aria-live="polite"></div>
+
   <div class="slideshow-control" id="slideshow-control">
     <button class="slideshow-toggle" id="slideshow-toggle" type="button" aria-label="Slideshow mode" title="Slideshow mode">
       <span aria-hidden="true">▶</span>
     </button>
     <div class="slideshow-panel hidden" id="slideshow-panel">
       <p class="slideshow-panel-title">Slideshow</p>
-      <fieldset class="slideshow-slides">
+      <fieldset class="slideshow-slides" id="slideshow-slides-fields">
         <legend>Pages to show</legend>
         <label class="slideshow-option">
           <input type="checkbox" id="slide-modules" checked>
@@ -125,6 +170,7 @@
           <span>Phase Breakdown</span>
         </label>
       </fieldset>
+      <div id="slideshow-generic-fields" class="hidden"></div>
       <label class="slideshow-duration">
         <span>Minutes per page</span>
         <input type="number" id="slide-minutes" min="0.5" max="30" step="0.5" value="2">
@@ -173,12 +219,41 @@
   </div>
 
   <script>
+    const DEFAULT_SHEET_ID = "1Dt5ae3Cekxnd4XNZr1MdqBfx_vJyVFLeN5j-n-ibSjU";
+    const SOURCES_KEY = "scoreboard-sources-config";
+
+    const DEFAULT_CONFIG = {
+      version: 1,
+      activeSourceId: "intrakore",
+      sources: [
+        {
+          id: "intrakore",
+          name: "Intrakore Scorecard",
+          type: "google_sheet",
+          displayMode: "scorecard",
+          connection: { urlOrId: DEFAULT_SHEET_ID, tab: "Scorecard" },
+          mapping: { preset: "intrakore_scorecard" },
+        },
+      ],
+    };
+
+    let sourcesConfig = structuredClone(DEFAULT_CONFIG);
     let scoreboardData = null;
+    let genericData = null;
+    let activeGenericBoardId = null;
     let moduleSort = "completion";
     let moduleFilter = "all";
+    let editingSourceId = null;
+    let previewState = null;
+    let msFormsConfigured = false;
 
     const pct = (value) => value == null ? "—" : `${Math.round(value * 100)}%`;
     const num = (value) => value == null ? "—" : Math.round(value).toLocaleString();
+    const esc = (value) => String(value ?? "")
+      .replace(/&/g, "&amp;")
+      .replace(/</g, "&lt;")
+      .replace(/>/g, "&gt;")
+      .replace(/"/g, "&quot;");
 
     function formatPageDate(date = new Date()) {
       return date.toLocaleDateString(undefined, {
@@ -197,6 +272,64 @@
 
     updatePageDate();
     setInterval(updatePageDate, 60000);
+
+    function activeSource() {
+      return sourcesConfig.sources.find((s) => s.id === sourcesConfig.activeSourceId)
+        || sourcesConfig.sources[0]
+        || DEFAULT_CONFIG.sources[0];
+    }
+
+    function saveSourcesConfig() {
+      localStorage.setItem(SOURCES_KEY, JSON.stringify(sourcesConfig));
+    }
+
+    function encodeConfigForUrl(config) {
+      const json = JSON.stringify(config);
+      const bytes = new TextEncoder().encode(json);
+      let binary = "";
+      bytes.forEach((b) => { binary += String.fromCharCode(b); });
+      return btoa(binary).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/g, "");
+    }
+
+    function decodeConfigFromUrl(token) {
+      const padded = token.replace(/-/g, "+").replace(/_/g, "/");
+      const pad = padded.length % 4 === 0 ? "" : "=".repeat(4 - (padded.length % 4));
+      const binary = atob(padded + pad);
+      const bytes = Uint8Array.from(binary, (c) => c.charCodeAt(0));
+      return JSON.parse(new TextDecoder().decode(bytes));
+    }
+
+    function normalizeConfig(raw) {
+      if (!raw || typeof raw !== "object") return structuredClone(DEFAULT_CONFIG);
+      const sources = Array.isArray(raw.sources) && raw.sources.length
+        ? raw.sources
+        : structuredClone(DEFAULT_CONFIG.sources);
+      const activeSourceId = sources.some((s) => s.id === raw.activeSourceId)
+        ? raw.activeSourceId
+        : sources[0].id;
+      return { version: 1, activeSourceId, sources };
+    }
+
+    function loadSourcesConfig() {
+      try {
+        const hash = location.hash || "";
+        const match = hash.match(/(?:^|#|&)cfg=([^&]+)/);
+        if (match) {
+          const imported = normalizeConfig(decodeConfigFromUrl(match[1]));
+          sourcesConfig = imported;
+          saveSourcesConfig();
+          history.replaceState(null, "", location.pathname + location.search);
+          return;
+        }
+      } catch (_) { /* ignore bad hash */ }
+
+      try {
+        const saved = JSON.parse(localStorage.getItem(SOURCES_KEY));
+        sourcesConfig = normalizeConfig(saved);
+      } catch (_) {
+        sourcesConfig = structuredClone(DEFAULT_CONFIG);
+      }
+    }
 
     const barClass = (value) => {
       if (value == null) return "bar-none";
@@ -243,11 +376,33 @@
       return [...completed, ...rest];
     }
 
-    function renderHero(data) {
+    function setDisplayMode(mode) {
+      const scorecardTabs = document.getElementById("scorecard-tabs");
+      const genericTabs = document.getElementById("generic-tabs");
+      const isScorecard = mode === "scorecard";
+      const enteringScorecard = isScorecard && scorecardTabs.classList.contains("hidden");
+
+      scorecardTabs.classList.toggle("hidden", !isScorecard);
+      genericTabs.classList.toggle("hidden", isScorecard);
+      document.getElementById("slideshow-slides-fields").classList.toggle("hidden", !isScorecard);
+      document.getElementById("slideshow-generic-fields").classList.toggle("hidden", isScorecard);
+
+      ["modules", "team", "phases"].forEach((name) => {
+        document.getElementById(`panel-${name}`).classList.toggle("hidden", !isScorecard);
+      });
+      document.getElementById("panel-generic").classList.toggle("hidden", isScorecard);
+
+      // Only reset to Module Progress when first entering scorecard mode — not on auto-refresh
+      if (enteringScorecard) {
+        switchTab("modules");
+      }
+    }
+
+    function renderHeroScorecard(data) {
       const summary = data.summary || {};
       const source = data.source_url
-        ? `<a href="${data.source_url}" target="_blank" rel="noopener">${data.source_file} · ${data.source_sheet || "Scorecard"}</a>`
-        : `${data.source_file} · ${data.source_sheet || "Scorecard"}`;
+        ? `<a href="${esc(data.source_url)}" target="_blank" rel="noopener">${esc(data.source_file)} · ${esc(data.source_sheet || "Scorecard")}</a>`
+        : `${esc(data.source_file)} · ${esc(data.source_sheet || "Scorecard")}`;
       document.getElementById("source-file").innerHTML = source;
       const completedCount = data.modules.filter(isCompleted).length;
       const ongoingCount = data.modules.filter((mod) => mod.status === "ongoing").length;
@@ -275,6 +430,39 @@
       `;
     }
 
+    function renderHeroGeneric(data, source) {
+      const boards = data.boards || [];
+      const preview = data.raw_preview || {};
+      const label = `${esc(source.name)} · ${esc(source.type.replace(/_/g, " "))}`;
+      const link = data.source_url
+        ? `<a href="${esc(data.source_url)}" target="_blank" rel="noopener">${label}</a>`
+        : label;
+      document.getElementById("source-file").innerHTML = link;
+      const rowCount = preview.row_count ?? preview.response_count ?? 0;
+      document.getElementById("hero-stats").innerHTML = `
+        <article class="stat-card stat-primary">
+          <span class="stat-label">Boards</span>
+          <span class="stat-value">${boards.length}</span>
+          <span class="stat-detail">configured views</span>
+        </article>
+        <article class="stat-card">
+          <span class="stat-label">Rows</span>
+          <span class="stat-value">${num(rowCount)}</span>
+          <span class="stat-detail">from source</span>
+        </article>
+        <article class="stat-card">
+          <span class="stat-label">Kind</span>
+          <span class="stat-value" style="font-size:1.1rem">${esc(data.kind || "data")}</span>
+          <span class="stat-detail">${esc(source.displayMode)}</span>
+        </article>
+        <article class="stat-card">
+          <span class="stat-label">Source</span>
+          <span class="stat-value" style="font-size:1rem">${esc(source.type.split("_")[0])}</span>
+          <span class="stat-detail">live</span>
+        </article>
+      `;
+    }
+
     function renderModules(data, filterOverride) {
       const grid = document.getElementById("module-grid");
       const activeFilter = filterOverride ?? moduleFilter;
@@ -294,9 +482,9 @@
           ? `<span class="priority-badge complete-badge">Complete</span>`
           : `<span class="priority-badge">Priority ${mod.priority ?? "?"}</span>`;
         return `
-          <button class="${cardClass}" type="button" data-module="${mod.module.replace(/"/g, "&quot;")}">
+          <button class="${cardClass}" type="button" data-module="${esc(mod.module)}">
             <div class="module-card-top">
-              <h3>${mod.module}</h3>
+              <h3>${esc(mod.module)}</h3>
               ${badge}
             </div>
             <div class="module-completion">
@@ -352,10 +540,10 @@
           <article class="stage-card stage-${info.status}">
             <div class="stage-header">
               <span class="stage-dot" aria-hidden="true"></span>
-              <h4>${labels[phase] || phase}</h4>
+              <h4>${esc(labels[phase] || phase)}</h4>
               <span class="stage-value">${pct(value)}</span>
             </div>
-            <div class="stage-meter" aria-label="${labels[phase] || phase}: ${pct(value)}">
+            <div class="stage-meter" aria-label="${esc(labels[phase] || phase)}: ${pct(value)}">
               <div class="stage-meter-fill" style="width:${width}%"></div>
             </div>
             <span class="stage-label">${info.label}</span>
@@ -397,7 +585,7 @@
           : null;
         return `
           <article class="team-card">
-            <h3>${name}</h3>
+            <h3>${esc(name)}</h3>
             <p class="team-tasks">${num(totals[name])} tasks completed</p>
             <div class="progress-row compact">
               <div class="progress-track">
@@ -415,7 +603,7 @@
         <tr>
           <th>Module</th>
           <th>Pri</th>
-          ${data.team_members.map((name) => `<th>${name}</th>`).join("")}
+          ${data.team_members.map((name) => `<th>${esc(name)}</th>`).join("")}
         </tr>
       `;
 
@@ -423,7 +611,7 @@
         const progressRow = data.team_progress.find((item) => item.module === row.module) || {};
         return `
           <tr>
-            <td>${row.module}</td>
+            <td>${esc(row.module)}</td>
             <td>P${row.priority ?? "?"}</td>
             ${data.team_members.map((name) => {
               const tasks = row.tasks?.[name];
@@ -442,91 +630,768 @@
     }
 
     function renderPhases(data) {
-      const cards = document.getElementById("phase-cards");
-      cards.innerHTML = data.phase_totals.map((phaseRow) => {
-        const progressRow = data.phase_progress.find((item) => item.phase === phaseRow.phase) || {};
-        const teamBars = data.team_members.map((name) => {
-          const total = phaseRow.totals?.[name];
-          const progress = progressRow.progress?.[name];
-          return `
-            <div class="phase-team-row">
-              <span class="phase-team-name">${name}</span>
-              <span class="phase-team-total">${total != null ? `${num(total)} items` : "—"}</span>
-              <div class="progress-row compact">
-                <div class="progress-track">
-                  <div class="progress-fill ${barClass(progress)}" style="width:${Math.max((progress ?? 0) * 100, 2)}%"></div>
-                </div>
-                <span class="progress-label">${pct(progress)}</span>
-              </div>
-            </div>
-          `;
-        }).join("");
+      const members = data.team_members || [];
+      const thead = document.querySelector("#phase-table thead");
+      const tbody = document.querySelector("#phase-table tbody");
 
+      thead.innerHTML = `
+        <tr>
+          <th>Phase</th>
+          <th>Overall</th>
+          ${members.map((name) => `<th>${esc(name)}</th>`).join("")}
+        </tr>
+      `;
+
+      const phaseRows = (data.phase_totals || []).filter(
+        (row) => row.phase && row.phase !== "Modules" && row.phase !== "Total Core"
+      );
+
+      tbody.innerHTML = phaseRows.map((row) => {
+        const progressRow = (data.phase_progress || []).find((item) => item.phase === row.phase) || {};
         return `
-          <article class="phase-card">
-            <div class="phase-card-header">
-              <h3>${phaseRow.phase}</h3>
-              <span class="phase-overall">${num(phaseRow.overall)} total</span>
-            </div>
-            <div class="phase-team-list">${teamBars}</div>
-          </article>
+          <tr>
+            <td class="phase-name-cell">${esc(row.phase)}</td>
+            <td class="phase-overall-cell">${num(row.overall)}</td>
+            ${members.map((name) => {
+              const total = row.totals?.[name];
+              const progress = progressRow.progress?.[name];
+              const hasCount = total != null && total > 0;
+              const hasProgress = progress != null;
+              if (!hasCount && !hasProgress) {
+                return `<td class="empty">N/A</td>`;
+              }
+              if (hasCount && hasProgress) {
+                return `
+                  <td class="phase-combo-cell">
+                    <span class="phase-count">${num(total)}</span>
+                    <span class="phase-sep">·</span>
+                    <span class="phase-pct">${pct(progress)}</span>
+                  </td>
+                `;
+              }
+              if (hasProgress) {
+                return `<td class="phase-combo-cell"><span class="phase-pct">${pct(progress)}</span></td>`;
+              }
+              return `<td class="phase-combo-cell"><span class="phase-count">${num(total)}</span></td>`;
+            }).join("")}
+          </tr>
         `;
-      }).join("");
+      }).join("") || `<tr><td colspan="${members.length + 2}">No phase data</td></tr>`;
     }
 
-    async function loadScoreboard(forceRefresh = false) {
+    function renderTableHtml(columns, rows) {
+      if (!columns?.length) return `<p class="empty-state">No columns configured.</p>`;
+      return `
+        <div class="table-wrap generic-table-wrap">
+          <table>
+            <thead>
+              <tr>${columns.map((c) => `<th>${esc(c)}</th>`).join("")}</tr>
+            </thead>
+            <tbody>
+              ${rows.map((row) => `
+                <tr>${columns.map((c) => `<td>${esc(row[c] ?? "—")}</td>`).join("")}</tr>
+              `).join("") || `<tr><td colspan="${columns.length}">No rows</td></tr>`}
+            </tbody>
+          </table>
+        </div>
+      `;
+    }
+
+    function renderGenericBoard(board) {
+      const titleEl = document.getElementById("generic-board-title");
+      const body = document.getElementById("generic-board-body");
+      titleEl.textContent = board.title || "Board";
+
+      if (board.type === "stats") {
+        body.innerHTML = `
+          <div class="hero-stats generic-stats">
+            ${(board.stats || []).map((stat) => `
+              <article class="stat-card">
+                <span class="stat-label">${esc(stat.label)}</span>
+                <span class="stat-value">${esc(stat.value)}</span>
+                <span class="stat-detail">${esc(stat.detail || "")}</span>
+              </article>
+            `).join("")}
+          </div>
+        `;
+        return;
+      }
+
+      if (board.type === "card_grid") {
+        body.innerHTML = `
+          <div class="module-grid generic-card-grid">
+            ${(board.cards || []).map((card) => {
+              const done = card.status === "completed";
+              return `
+                <article class="module-card ${done ? "module-card-complete" : ""}">
+                  <div class="module-card-top">
+                    <h3>${esc(card.title)}</h3>
+                    ${done ? `<span class="priority-badge complete-badge">Complete</span>` : ""}
+                  </div>
+                  ${card.subtitle ? `<p class="generic-card-sub">${esc(card.subtitle)}</p>` : ""}
+                  ${card.progress != null ? `
+                    <div class="module-completion">
+                      <span class="module-pct">${pct(card.progress)}</span>
+                      <span class="module-pct-label">complete</span>
+                    </div>
+                    <div class="progress-row module-progress">
+                      <div class="progress-track">
+                        <div class="progress-fill ${barClass(card.progress)}" style="width:${Math.max(card.progress * 100, 2)}%"></div>
+                      </div>
+                    </div>
+                  ` : ""}
+                </article>
+              `;
+            }).join("") || `<p class="empty-state">No cards</p>`}
+          </div>
+        `;
+        return;
+      }
+
+      if (board.type === "text_sections") {
+        body.innerHTML = `
+          <div class="doc-sections">
+            ${(board.sections || []).map((section) => `
+              <article class="doc-section">
+                <h3>${esc(section.heading)}</h3>
+                ${(section.paragraphs || []).map((p) => `<p>${esc(p)}</p>`).join("")}
+              </article>
+            `).join("") || `<p class="empty-state">No document sections</p>`}
+          </div>
+        `;
+        return;
+      }
+
+      if (board.type === "form_summary") {
+        body.innerHTML = `
+          <div class="hero-stats generic-stats" style="margin-bottom:12px">
+            <article class="stat-card stat-primary">
+              <span class="stat-label">Responses</span>
+              <span class="stat-value">${num(board.response_count)}</span>
+              <span class="stat-detail">total</span>
+            </article>
+          </div>
+          ${renderTableHtml(board.columns || [], board.rows || [])}
+        `;
+        return;
+      }
+
+      body.innerHTML = renderTableHtml(board.columns || [], board.rows || []);
+    }
+
+    function renderGeneric(data) {
+      genericData = data;
+      const boards = data.boards || [];
+      const tabs = document.getElementById("generic-tabs");
+      if (!boards.length) {
+        tabs.innerHTML = "";
+        document.getElementById("generic-board-body").innerHTML = `<p class="empty-state">No boards configured for this source.</p>`;
+        return;
+      }
+      if (!activeGenericBoardId || !boards.some((b) => b.id === activeGenericBoardId)) {
+        activeGenericBoardId = boards[0].id;
+      }
+      tabs.innerHTML = boards.map((board) => `
+        <button class="tab ${board.id === activeGenericBoardId ? "active" : ""}" type="button" data-board-id="${esc(board.id)}">
+          ${esc(board.title || board.type)}
+        </button>
+      `).join("");
+
+      tabs.querySelectorAll(".tab").forEach((btn) => {
+        btn.addEventListener("click", () => {
+          if (slideshow.running) return;
+          activeGenericBoardId = btn.dataset.boardId;
+          renderGeneric(genericData);
+        });
+      });
+
+      const board = boards.find((b) => b.id === activeGenericBoardId) || boards[0];
+      document.getElementById("panel-generic").classList.add("active");
+      renderGenericBoard(board);
+      updateGenericSlideshowFields(boards);
+    }
+
+    function updateGenericSlideshowFields(boards) {
+      const wrap = document.getElementById("slideshow-generic-fields");
+      wrap.innerHTML = `
+        <fieldset class="slideshow-slides">
+          <legend>Boards to show</legend>
+          ${boards.map((board, idx) => `
+            <label class="slideshow-option">
+              <input type="checkbox" class="slide-generic-board" data-board-id="${esc(board.id)}" ${idx === 0 ? "checked" : "checked"}>
+              <span>${esc(board.title || board.type)}</span>
+            </label>
+          `).join("")}
+        </fieldset>
+      `;
+    }
+
+    function switchTab(tabName) {
+      document.querySelectorAll("#scorecard-tabs .tab").forEach((tab) => {
+        tab.classList.toggle("active", tab.dataset.tab === tabName);
+      });
+      ["modules", "team", "phases"].forEach((name) => {
+        const panel = document.getElementById(`panel-${name}`);
+        panel.classList.toggle("active", name === tabName);
+      });
+      document.getElementById("panel-generic").classList.remove("active");
+    }
+
+    async function loadActiveSource(forceRefresh = true) {
       const refreshBtn = document.getElementById("refresh-btn");
       const refreshIcon = document.getElementById("refresh-icon");
       refreshBtn.disabled = true;
       refreshIcon.classList.add("spinning");
 
+      const source = activeSource();
       try {
-        const url = forceRefresh ? "/api/scoreboard?refresh=1" : "/api/scoreboard";
-        const response = await fetch(url);
-        const data = await response.json();
-        if (!response.ok) {
-          document.querySelector(".subtitle").textContent = data.error || "Failed to load spreadsheet";
+        let data;
+        if (source.type === "word_doc" && source.connection?.uploadPending) {
+          document.getElementById("source-file").textContent = "Upload a .docx in Sources to load this source.";
           return;
         }
 
-        scoreboardData = data;
-        renderHero(data);
-        if (slideshow.running && slideshow.slides[slideshow.index]?.type === "modules") {
-          renderModules(data, slideshow.slides[slideshow.index].filter);
-        } else {
-          renderModules(data);
+        const response = await fetch(`/api/source/fetch${forceRefresh ? "?refresh=1" : ""}`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            type: source.type,
+            connection: source.connection,
+            displayMode: source.displayMode,
+            mapping: source.mapping,
+            refresh: forceRefresh,
+          }),
+        });
+        data = await response.json();
+        if (!response.ok) {
+          document.getElementById("source-file").textContent = data.error || "Failed to load source";
+          return;
         }
-        renderTeam(data);
-        renderPhases(data);
+
         const syncedAt = data.fetched_at
           ? new Date(data.fetched_at * 1000).toLocaleTimeString()
           : new Date().toLocaleTimeString();
-        const cacheNote = data.from_cache ? " · cached" : " · live from sheet";
+        const cacheNote = data.from_cache ? " · cached" : " · live from source";
         document.getElementById("updated-at").textContent =
-          `Sheet synced ${syncedAt}${cacheNote} · auto-refreshes every 30s`;
+          `${esc(source.name)} synced ${syncedAt}${cacheNote} · auto-refreshes every 30s`;
+
+        if (data.mode === "scorecard" || source.displayMode === "scorecard") {
+          setDisplayMode("scorecard");
+          scoreboardData = data;
+          genericData = null;
+          renderHeroScorecard(data);
+          if (slideshow.running && slideshow.slides[slideshow.index]?.type === "modules") {
+            renderModules(data, slideshow.slides[slideshow.index].filter);
+          } else {
+            renderModules(data);
+          }
+          renderTeam(data);
+          renderPhases(data);
+        } else {
+          setDisplayMode("generic");
+          scoreboardData = null;
+          renderHeroGeneric(data, source);
+          renderGeneric(data);
+          if (slideshow.running && slideshow.slides[slideshow.index]?.boardId) {
+            activeGenericBoardId = slideshow.slides[slideshow.index].boardId;
+            renderGeneric(data);
+          }
+        }
+      } catch (err) {
+        document.getElementById("source-file").textContent = err.message || "Failed to load source";
       } finally {
         refreshBtn.disabled = false;
         refreshIcon.classList.remove("spinning");
       }
     }
 
-    function switchTab(tabName) {
-      document.querySelectorAll(".tab").forEach((tab) => {
-        tab.classList.toggle("active", tab.dataset.tab === tabName);
+    /* ── Sources panel ── */
+
+    function openSourcesModal() {
+      renderSourcesList();
+      const editor = document.getElementById("source-editor");
+      editor.classList.add("hidden");
+      editor.innerHTML = "";
+      editingSourceId = null;
+      previewState = null;
+      document.getElementById("sources-modal").classList.remove("hidden");
+      document.getElementById("sources-modal").setAttribute("aria-hidden", "false");
+      refreshMsStatus();
+    }
+
+    function closeSourcesModal() {
+      document.getElementById("sources-modal").classList.add("hidden");
+      document.getElementById("sources-modal").setAttribute("aria-hidden", "true");
+      const editor = document.getElementById("source-editor");
+      editor.classList.add("hidden");
+      editor.innerHTML = "";
+      editingSourceId = null;
+      previewState = null;
+    }
+
+    let toastTimer = null;
+    function showToast(message, durationMs = 3000) {
+      const toast = document.getElementById("toast");
+      toast.textContent = message;
+      toast.classList.remove("hidden");
+      toast.classList.add("toast-visible");
+      if (toastTimer) clearTimeout(toastTimer);
+      toastTimer = setTimeout(() => {
+        toast.classList.remove("toast-visible");
+        toast.classList.add("hidden");
+        toastTimer = null;
+      }, durationMs);
+    }
+
+    async function refreshMsStatus() {
+      try {
+        const res = await fetch("/api/health");
+        const data = await res.json();
+        msFormsConfigured = !!data.ms_forms_configured;
+        document.getElementById("sources-ms-status").textContent = msFormsConfigured
+          ? "Microsoft Forms: credentials configured on server"
+          : "Microsoft Forms: set MS_TENANT_ID, MS_CLIENT_ID, MS_CLIENT_SECRET on Vercel to enable";
+      } catch (_) {
+        document.getElementById("sources-ms-status").textContent = "";
+      }
+    }
+
+    function renderSourcesList() {
+      const list = document.getElementById("sources-list");
+      list.innerHTML = sourcesConfig.sources.map((source) => `
+        <article class="source-row ${source.id === sourcesConfig.activeSourceId ? "active" : ""}">
+          <div>
+            <strong>${esc(source.name)}</strong>
+            <span class="source-meta">${esc(source.type)} · ${esc(source.displayMode)}</span>
+          </div>
+          <div class="source-row-actions">
+            <button type="button" class="sources-action" data-activate="${esc(source.id)}" ${source.id === sourcesConfig.activeSourceId ? "disabled" : ""}>Activate</button>
+            <button type="button" class="sources-action" data-edit="${esc(source.id)}">Edit</button>
+            <button type="button" class="sources-action sources-danger" data-delete="${esc(source.id)}" ${sourcesConfig.sources.length <= 1 ? "disabled" : ""}>Delete</button>
+          </div>
+        </article>
+      `).join("");
+
+      list.querySelectorAll("[data-activate]").forEach((btn) => {
+        btn.addEventListener("click", () => {
+          sourcesConfig.activeSourceId = btn.dataset.activate;
+          saveSourcesConfig();
+          renderSourcesList();
+          closeSourcesModal();
+          loadActiveSource(true);
+        });
       });
-      document.querySelectorAll(".panel").forEach((panel) => {
-        panel.classList.toggle("active", panel.id === `panel-${tabName}`);
+      list.querySelectorAll("[data-edit]").forEach((btn) => {
+        btn.addEventListener("click", () => openSourceEditor(btn.dataset.edit));
+      });
+      list.querySelectorAll("[data-delete]").forEach((btn) => {
+        btn.addEventListener("click", () => {
+          const id = btn.dataset.delete;
+          sourcesConfig.sources = sourcesConfig.sources.filter((s) => s.id !== id);
+          if (sourcesConfig.activeSourceId === id) {
+            sourcesConfig.activeSourceId = sourcesConfig.sources[0].id;
+          }
+          saveSourcesConfig();
+          renderSourcesList();
+          loadActiveSource(true);
+        });
       });
     }
 
-    document.querySelectorAll(".tab").forEach((button) => {
+    function newSourceDraft() {
+      return {
+        id: `src-${Date.now()}`,
+        name: "New source",
+        type: "google_sheet",
+        displayMode: "generic",
+        connection: { urlOrId: "", tab: "" },
+        mapping: { boards: [] },
+      };
+    }
+
+    function openSourceEditor(id) {
+      editingSourceId = id || null;
+      const existing = id
+        ? sourcesConfig.sources.find((s) => s.id === id)
+        : null;
+      const source = existing
+        ? structuredClone(existing)
+        : newSourceDraft();
+      previewState = null;
+      const editor = document.getElementById("source-editor");
+      editor.classList.remove("hidden");
+      editor.innerHTML = `
+        <h3>${id ? "Edit source" : "Add source"}</h3>
+        <div class="source-form-grid">
+          <label><span class="field-label">Name</span><input id="ed-name" value="${esc(source.name)}"></label>
+          <label><span class="field-label">Type</span>
+            <select id="ed-type">
+              <option value="google_sheet" ${source.type === "google_sheet" ? "selected" : ""}>Google Sheet</option>
+              <option value="word_doc" ${source.type === "word_doc" ? "selected" : ""}>Word / Google Doc</option>
+              <option value="google_forms" ${source.type === "google_forms" ? "selected" : ""}>Google Forms (response sheet)</option>
+              <option value="microsoft_forms" ${source.type === "microsoft_forms" ? "selected" : ""}>Microsoft Forms</option>
+            </select>
+          </label>
+          <label id="ed-url-label"><span class="field-label" id="ed-url-label-text">URL or ID</span>
+            <input id="ed-url" value="${esc(source.connection?.urlOrId || source.connection?.url || source.connection?.formId || "")}">
+          </label>
+          <label id="ed-tab-wrap"><span class="field-label">Sheet tab</span>
+            <input id="ed-tab" value="${esc(source.connection?.tab || "")}" placeholder="Auto / Scorecard">
+          </label>
+          <label><span class="field-label">Display mode</span>
+            <select id="ed-mode">
+              <option value="scorecard" ${source.displayMode === "scorecard" ? "selected" : ""}>Scorecard (modules / team / phases)</option>
+              <option value="generic" ${source.displayMode === "generic" ? "selected" : ""}>Generic boards</option>
+            </select>
+          </label>
+          <label id="ed-file-wrap" class="hidden"><span class="field-label">Upload .docx</span>
+            <input type="file" id="ed-file" accept=".docx,application/vnd.openxmlformats-officedocument.wordprocessingml.document">
+          </label>
+        </div>
+        <div class="source-form-actions">
+          <button type="button" id="ed-preview" class="sources-action sources-primary">Preview</button>
+          <button type="button" id="ed-save" class="sources-action sources-primary">Save</button>
+          <button type="button" id="ed-cancel" class="sources-action">Cancel</button>
+        </div>
+        <div id="ed-preview-out" class="source-preview hidden"></div>
+        <div id="ed-mapping" class="source-mapping hidden"></div>
+      `;
+
+      const syncTypeFields = () => {
+        const type = document.getElementById("ed-type").value;
+        const tabWrap = document.getElementById("ed-tab-wrap");
+        const fileWrap = document.getElementById("ed-file-wrap");
+        const urlLabelText = document.getElementById("ed-url-label-text");
+        tabWrap.classList.toggle("hidden", !(type === "google_sheet" || type === "google_forms"));
+        fileWrap.classList.toggle("hidden", type !== "word_doc");
+        if (type === "microsoft_forms") {
+          urlLabelText.textContent = "Form ID";
+        } else if (type === "word_doc") {
+          urlLabelText.textContent = "Google Doc / .docx URL";
+        } else {
+          urlLabelText.textContent = "URL or ID";
+        }
+      };
+      document.getElementById("ed-type").addEventListener("change", syncTypeFields);
+      syncTypeFields();
+
+      document.getElementById("ed-cancel").addEventListener("click", () => {
+        editor.classList.add("hidden");
+        editor.innerHTML = "";
+        editingSourceId = null;
+        previewState = null;
+      });
+      document.getElementById("ed-preview").addEventListener("click", () => runPreview(source));
+      document.getElementById("ed-save").addEventListener("click", () => saveEditor(source));
+
+      requestAnimationFrame(() => {
+        editor.scrollIntoView({ behavior: "smooth", block: "nearest" });
+        document.getElementById("ed-name")?.focus();
+      });
+    }
+    function readEditorFields(source) {
+      const type = document.getElementById("ed-type").value;
+      const url = document.getElementById("ed-url").value.trim();
+      source.name = document.getElementById("ed-name").value.trim() || "Untitled";
+      source.type = type;
+      source.displayMode = document.getElementById("ed-mode").value;
+      if (type === "microsoft_forms") {
+        source.connection = { formId: url };
+      } else if (type === "word_doc") {
+        source.connection = { url };
+      } else {
+        source.connection = {
+          urlOrId: url,
+          tab: document.getElementById("ed-tab").value.trim() || undefined,
+        };
+      }
+      return source;
+    }
+
+    async function runPreview(source) {
+      readEditorFields(source);
+      const out = document.getElementById("ed-preview-out");
+      out.classList.remove("hidden");
+      out.textContent = "Loading preview…";
+
+      try {
+        if (source.type === "word_doc") {
+          const fileInput = document.getElementById("ed-file");
+          if (fileInput.files?.[0]) {
+            const form = new FormData();
+            form.append("file", fileInput.files[0]);
+            form.append("preview", "1");
+            const res = await fetch("/api/source/upload", { method: "POST", body: form });
+            previewState = await res.json();
+            if (!res.ok) throw new Error(previewState.error || "Upload failed");
+          } else if (source.connection.url) {
+            const params = new URLSearchParams({ type: "word_doc", url: source.connection.url });
+            const res = await fetch(`/api/source/preview?${params}`);
+            previewState = await res.json();
+            if (!res.ok) throw new Error(previewState.error || "Preview failed");
+          } else {
+            throw new Error("Provide a Doc URL or upload a .docx file");
+          }
+        } else {
+          const params = new URLSearchParams({ type: source.type });
+          if (source.type === "microsoft_forms") {
+            params.set("formId", source.connection.formId || "");
+          } else {
+            params.set("urlOrId", source.connection.urlOrId || "");
+            if (source.connection.tab) params.set("tab", source.connection.tab);
+          }
+          const res = await fetch(`/api/source/preview?${params}`);
+          previewState = await res.json();
+          if (!res.ok && !previewState.suggested_mapping) {
+            throw new Error(previewState.error || "Preview failed");
+          }
+        }
+
+        if (previewState.suggested_display_mode) {
+          document.getElementById("ed-mode").value = previewState.suggested_display_mode;
+          source.displayMode = previewState.suggested_display_mode;
+        }
+        if (previewState.suggested_mapping) {
+          source.mapping = previewState.suggested_mapping;
+        }
+
+        out.innerHTML = `
+          <p><strong>Preview OK</strong> · mode suggestion: ${esc(previewState.suggested_display_mode || "generic")}</p>
+          ${previewState.error ? `<p class="source-warn">${esc(previewState.error)}</p>` : ""}
+          ${previewState.sheet_names ? `<p>Tabs: ${esc((previewState.sheet_names || []).join(", "))}</p>` : ""}
+          ${previewState.columns ? `<p>Columns: ${esc((previewState.columns || []).join(", "))}</p>` : ""}
+          ${previewState.row_count != null ? `<p>Rows: ${esc(previewState.row_count)}</p>` : ""}
+          ${previewState.section_count != null ? `<p>Sections: ${esc(previewState.section_count)} · Tables: ${esc(previewState.table_count)}</p>` : ""}
+          ${previewState.response_count != null ? `<p>Responses: ${esc(previewState.response_count)}</p>` : ""}
+        `;
+        renderMappingEditor(source, previewState);
+      } catch (err) {
+        out.textContent = err.message || String(err);
+      }
+    }
+
+    function renderMappingEditor(source, preview) {
+      const wrap = document.getElementById("ed-mapping");
+      const mode = document.getElementById("ed-mode").value;
+      if (mode === "scorecard") {
+        wrap.classList.remove("hidden");
+        wrap.innerHTML = `
+          <h4>Scorecard mapping</h4>
+          <p>Uses the Intrakore Scorecard layout (modules, team workload, phases).</p>
+          <label class="slideshow-option">
+            <input type="checkbox" id="ed-preset" checked>
+            <span>Use Intrakore Scorecard preset</span>
+          </label>
+        `;
+        document.getElementById("ed-mode").onchange = () => {
+          source.displayMode = document.getElementById("ed-mode").value;
+          renderMappingEditor(source, preview || previewState || { columns: [] });
+        };
+        return;
+      }
+
+      const columns = preview.columns || [];
+      const boards = source.mapping?.boards || preview.suggested_mapping?.boards || [];
+      wrap.classList.remove("hidden");
+      wrap.innerHTML = `
+        <h4>Board mapping</h4>
+        <p>Configure how source fields appear. Boards become tabs on the scoreboard.</p>
+        <div id="ed-boards">
+          ${boards.map((board, idx) => mappingBoardFields(board, idx, columns, preview)).join("")}
+        </div>
+        <button type="button" id="ed-add-board">Add board</button>
+      `;
+      document.getElementById("ed-add-board").addEventListener("click", () => {
+        const next = collectMappingFromEditor(source, preview);
+        next.boards = next.boards || [];
+        next.boards.push({
+          id: `board-${Date.now()}`,
+          type: "table",
+          title: "Table",
+          columns: columns.slice(),
+        });
+        source.mapping = next;
+        renderMappingEditor(source, preview);
+      });
+      bindMappingRemove(source, preview);
+      document.getElementById("ed-mode").onchange = () => {
+        source.displayMode = document.getElementById("ed-mode").value;
+        renderMappingEditor(source, preview || previewState || { columns: [] });
+      };
+    }
+
+    function mappingBoardFields(board, idx, columns, preview) {
+      const selectedCols = new Set(board.columns || columns);
+      return `
+        <fieldset class="mapping-board" data-idx="${idx}">
+          <legend>Board ${idx + 1}</legend>
+          <label>Title<input class="mb-title" value="${esc(board.title || "")}"></label>
+          <label>Type
+            <select class="mb-type">
+              ${["stats", "card_grid", "table", "text_sections", "form_summary", "tables"].map((t) =>
+                `<option value="${t}" ${board.type === t ? "selected" : ""}>${t}</option>`
+              ).join("")}
+            </select>
+          </label>
+          <label class="mb-title-field-wrap">Title field
+            <select class="mb-title-field">
+              <option value="">—</option>
+              ${columns.map((c) => `<option value="${esc(c)}" ${board.titleField === c ? "selected" : ""}>${esc(c)}</option>`).join("")}
+            </select>
+          </label>
+          <label class="mb-progress-field-wrap">Progress field
+            <select class="mb-progress-field">
+              <option value="">—</option>
+              ${columns.map((c) => `<option value="${esc(c)}" ${board.progressField === c ? "selected" : ""}>${esc(c)}</option>`).join("")}
+            </select>
+          </label>
+          <label class="mb-cols-wrap">Columns
+            <select class="mb-columns" multiple size="${Math.min(6, Math.max(3, columns.length || 3))}">
+              ${columns.map((c) => `<option value="${esc(c)}" ${selectedCols.has(c) ? "selected" : ""}>${esc(c)}</option>`).join("")}
+            </select>
+          </label>
+          ${(preview.tables || []).length ? `
+            <label>Doc table index
+              <input class="mb-table-index" type="number" min="0" value="${board.tableIndex ?? 0}">
+            </label>
+          ` : ""}
+          <input type="hidden" class="mb-id" value="${esc(board.id || `board-${idx}`)}">
+          <button type="button" class="mb-remove">Remove</button>
+        </fieldset>
+      `;
+    }
+
+    function collectMappingFromEditor(source, preview) {
+      const mode = document.getElementById("ed-mode").value;
+      if (mode === "scorecard") {
+        return { preset: "intrakore_scorecard" };
+      }
+      const boards = [];
+      document.querySelectorAll(".mapping-board").forEach((fs) => {
+        const type = fs.querySelector(".mb-type").value;
+        const columnsSelect = fs.querySelector(".mb-columns");
+        const columns = columnsSelect
+          ? Array.from(columnsSelect.selectedOptions).map((o) => o.value)
+          : [];
+        boards.push({
+          id: fs.querySelector(".mb-id").value,
+          type,
+          title: fs.querySelector(".mb-title").value.trim() || type,
+          titleField: fs.querySelector(".mb-title-field")?.value || undefined,
+          progressField: fs.querySelector(".mb-progress-field")?.value || undefined,
+          columns,
+          tableIndex: Number(fs.querySelector(".mb-table-index")?.value || 0),
+        });
+      });
+      return { boards };
+    }
+
+    function bindMappingRemove(source, preview) {
+      document.querySelectorAll(".mb-remove").forEach((btn) => {
+        btn.addEventListener("click", () => {
+          btn.closest(".mapping-board").remove();
+        });
+      });
+    }
+
+    async function saveEditor(source) {
+      readEditorFields(source);
+      if (previewState || document.getElementById("ed-mapping")?.childElementCount) {
+        source.mapping = collectMappingFromEditor(source, previewState || {});
+      } else if (source.displayMode === "scorecard") {
+        source.mapping = { preset: "intrakore_scorecard" };
+      }
+
+      const fileInput = document.getElementById("ed-file");
+      if (source.type === "word_doc" && fileInput?.files?.[0] && !source.connection.url) {
+        // Persist uploaded content by posting on each load is not possible without storage;
+        // require URL for shareable configs. Keep last upload name as hint.
+        source.connection.localFileName = fileInput.files[0].name;
+        alert("For shareable configs, paste a public Google Doc / .docx URL. Local upload works for this session via Preview/Save with URL preferred.");
+      }
+
+      if (editingSourceId) {
+        const idx = sourcesConfig.sources.findIndex((s) => s.id === editingSourceId);
+        if (idx >= 0) sourcesConfig.sources[idx] = source;
+      } else {
+        sourcesConfig.sources.push(source);
+        sourcesConfig.activeSourceId = source.id;
+      }
+      saveSourcesConfig();
+      document.getElementById("source-editor").classList.add("hidden");
+      renderSourcesList();
+      closeSourcesModal();
+      await loadActiveSource(true);
+    }
+
+    document.getElementById("sources-btn").addEventListener("click", openSourcesModal);
+    document.getElementById("sources-close").addEventListener("click", closeSourcesModal);
+    document.getElementById("sources-modal").addEventListener("click", (event) => {
+      if (event.target.id === "sources-modal") closeSourcesModal();
+    });
+    document.getElementById("source-add-btn").addEventListener("click", (event) => {
+      event.preventDefault();
+      event.stopPropagation();
+      openSourceEditor(null);
+    });
+    document.getElementById("source-share-btn").addEventListener("click", async (event) => {
+      event.preventDefault();
+      event.stopPropagation();
+      const token = encodeConfigForUrl(sourcesConfig);
+      const url = `${location.origin}${location.pathname}#cfg=${token}`;
+      try {
+        await navigator.clipboard.writeText(url);
+        showToast("Copied to clipboard");
+      } catch (_) {
+        try {
+          const input = document.createElement("textarea");
+          input.value = url;
+          input.setAttribute("readonly", "");
+          input.style.position = "fixed";
+          input.style.left = "-9999px";
+          document.body.appendChild(input);
+          input.select();
+          document.execCommand("copy");
+          document.body.removeChild(input);
+          showToast("Copied to clipboard");
+        } catch (err) {
+          prompt("Copy this share link:", url);
+        }
+      }
+    });
+    document.getElementById("source-export-btn").addEventListener("click", () => {
+      const blob = new Blob([JSON.stringify(sourcesConfig, null, 2)], { type: "application/json" });
+      const a = document.createElement("a");
+      a.href = URL.createObjectURL(blob);
+      a.download = "scoreboard-sources.json";
+      a.click();
+      URL.revokeObjectURL(a.href);
+      showToast("JSON exported");
+    });
+    document.getElementById("source-import-file").addEventListener("change", async (event) => {
+      const file = event.target.files?.[0];
+      if (!file) return;
+      try {
+        const text = await file.text();
+        sourcesConfig = normalizeConfig(JSON.parse(text));
+        saveSourcesConfig();
+        renderSourcesList();
+        await loadActiveSource(true);
+        showToast("Config imported");
+      } catch (err) {
+        showToast(err.message || "Invalid JSON");
+      }
+      event.target.value = "";
+    });
+
+    document.querySelectorAll("#scorecard-tabs .tab").forEach((button) => {
       button.addEventListener("click", () => {
         if (slideshow.running) return;
         switchTab(button.dataset.tab);
       });
     });
 
-    document.getElementById("refresh-btn").addEventListener("click", () => loadScoreboard(true));
+    document.getElementById("refresh-btn").addEventListener("click", () => loadActiveSource(true));
     document.getElementById("modal-close").addEventListener("click", closeModuleModal);
     document.getElementById("module-modal").addEventListener("click", (event) => {
       if (event.target.id === "module-modal") closeModuleModal();
@@ -535,6 +1400,10 @@
       if (event.key !== "Escape") return;
       if (slideshow.running) {
         stopSlideshow();
+        return;
+      }
+      if (!document.getElementById("sources-modal").classList.contains("hidden")) {
+        closeSourcesModal();
         return;
       }
       closeModuleModal();
@@ -549,9 +1418,6 @@
       moduleFilter = event.target.value;
       if (scoreboardData) renderModules(scoreboardData);
     });
-
-    loadScoreboard(true);
-    setInterval(() => loadScoreboard(true), 30000);
 
     const SCALE_KEY = "scoreboard-page-scale";
     const scaleInput = document.getElementById("page-scale");
@@ -607,6 +1473,7 @@
       slideStart: 0,
       slideDurationMs: 0,
       scrollPanel: null,
+      minutes: 2,
     };
 
     function readSlideshowConfig() {
@@ -616,6 +1483,9 @@
         team: document.getElementById("slide-team").checked,
         phases: document.getElementById("slide-phases").checked,
         minutes: Number(document.getElementById("slide-minutes").value) || 2,
+        genericBoardIds: Array.from(document.querySelectorAll(".slide-generic-board:checked")).map(
+          (el) => el.dataset.boardId
+        ),
       };
     }
 
@@ -637,6 +1507,20 @@
     }
 
     function buildSlideQueue(config) {
+      const source = activeSource();
+      if (source.displayMode === "generic" && genericData?.boards?.length) {
+        const ids = config.genericBoardIds?.length
+          ? config.genericBoardIds
+          : genericData.boards.map((b) => b.id);
+        return genericData.boards
+          .filter((b) => ids.includes(b.id))
+          .map((b) => ({
+            type: "generic",
+            boardId: b.id,
+            label: b.title || b.type,
+            scroll: true,
+          }));
+      }
       const queue = [];
       if (config.modules) {
         queue.push({ type: "modules", filter: config.modulesFilter, label: "Module Progress" });
@@ -655,6 +1539,14 @@
       if (slide.type === "team") {
         return document.querySelector("#panel-team .table-wrap");
       }
+      if (slide.type === "phases") {
+        return document.querySelector("#panel-phases .table-wrap")
+          || document.getElementById("panel-phases");
+      }
+      if (slide.type === "generic") {
+        return document.querySelector("#panel-generic .generic-board-body")
+          || document.getElementById("panel-generic");
+      }
       return document.getElementById(`panel-${slide.type}`);
     }
 
@@ -670,11 +1562,21 @@
     }
 
     function showSlide(slide) {
-      switchTab(slide.type);
-      if (slide.type === "modules" && scoreboardData) {
-        renderModules(scoreboardData, slide.filter);
+      if (slide.type === "generic") {
+        activeGenericBoardId = slide.boardId;
+        if (genericData) renderGeneric(genericData);
+        document.getElementById("panel-generic").classList.add("active");
+      } else {
+        switchTab(slide.type);
+        if (slide.type === "modules" && scoreboardData) {
+          renderModules(scoreboardData, slide.filter);
+        }
       }
-      const panel = slide.scroll ? document.getElementById(`panel-${slide.type}`) : null;
+      const panel = slide.scroll
+        ? (slide.type === "generic"
+          ? document.getElementById("panel-generic")
+          : document.getElementById(`panel-${slide.type}`))
+        : null;
       if (panel) panel.scrollTop = 0;
       slideshow.scrollPanel = getScrollElement(slide);
       resetPanelScroll(slideshow.scrollPanel);
@@ -756,6 +1658,7 @@
       slideshowToggle.querySelector("span").textContent = "▶";
 
       if (scoreboardData) renderModules(scoreboardData);
+      if (genericData) renderGeneric(genericData);
     }
 
     document.getElementById("slide-modules").addEventListener("change", (event) => {
@@ -774,6 +1677,9 @@
     document.getElementById("slideshow-stop").addEventListener("click", stopSlideshow);
 
     loadSlideshowConfig();
+    loadSourcesConfig();
+    loadActiveSource(true);
+    setInterval(() => loadActiveSource(true), 30000);
   </script>
 </body>
 </html>
