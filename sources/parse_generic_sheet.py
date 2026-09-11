@@ -47,7 +47,15 @@ def parse_generic_sheet(
         names = list(workbook.sheetnames)
         if not names:
             raise ValueError("Spreadsheet has no sheets")
-        sheet_name = tab if tab and tab in names else names[0]
+        requested = (tab or "").strip() or None
+        if requested:
+            if requested not in names:
+                raise ValueError(
+                    f"Sheet tab {requested!r} not found. Available: {', '.join(names)}"
+                )
+            sheet_name = requested
+        else:
+            sheet_name = names[0]
         worksheet = workbook[sheet_name]
         raw_rows = list(worksheet.iter_rows(values_only=True))
     finally:

@@ -17,8 +17,8 @@
     <header class="hero">
       <div class="hero-top">
         <div class="hero-text">
-          <p class="eyebrow">Intrakore · Project Plan</p>
-          <h1>Live Scoreboard</h1>
+          <p class="eyebrow" id="hero-eyebrow">Intrakore · Project Plan</p>
+          <h1 id="hero-title">Live Scoreboard</h1>
         </div>
         <div class="hero-actions">
           <button class="sources-btn" id="sources-btn" type="button" aria-label="Configure sources">
@@ -97,11 +97,59 @@
         </div>
       </section>
 
+      <section class="panel hidden" id="panel-bugs">
+        <div class="panel-header panel-header-row">
+          <div>
+            <h2>Bug Index</h2>
+            <p class="panel-sub" id="bugs-source-label">Severity · status · module from the snag list</p>
+          </div>
+          <div class="panel-controls bugs-controls">
+            <div class="sort-controls">
+              <label for="bug-status-filter">Status</label>
+              <select id="bug-status-filter">
+                <option value="all">All statuses</option>
+                <option value="UNOPENED">Unopened</option>
+                <option value="OPEN">Open</option>
+                <option value="ACTIONED">Actioned</option>
+                <option value="CLOSED">Closed</option>
+              </select>
+            </div>
+            <div class="sort-controls">
+              <label for="bug-severity-filter">Severity</label>
+              <select id="bug-severity-filter">
+                <option value="all">All severities</option>
+              </select>
+            </div>
+            <div class="sort-controls">
+              <label for="bug-module-filter">Module</label>
+              <select id="bug-module-filter">
+                <option value="all">All modules</option>
+              </select>
+            </div>
+            <div class="sort-controls">
+              <label for="bug-search">Search</label>
+              <input type="search" id="bug-search" placeholder="ID or finding…" autocomplete="off">
+            </div>
+          </div>
+        </div>
+        <div class="bugs-card-grid" id="bugs-card-grid" aria-live="polite"></div>
+      </section>
+
       <section class="panel hidden" id="panel-generic">
         <div class="panel-header panel-header-row">
           <h2 id="generic-board-title">Board</h2>
         </div>
         <div id="generic-board-body" class="generic-board-body"></div>
+      </section>
+
+      <section class="panel hidden" id="panel-website">
+        <div class="website-frame-wrap">
+          <iframe id="website-frame" class="website-frame" title="Embedded website" sandbox="allow-scripts allow-same-origin allow-forms allow-popups allow-popups-to-escape-sandbox allow-downloads" referrerpolicy="no-referrer-when-downgrade"></iframe>
+          <p class="website-fallback hidden" id="website-fallback">
+            This site may block embedding.
+            <a id="website-fallback-link" href="#" target="_blank" rel="noopener">Open in a new tab</a>
+          </p>
+        </div>
       </section>
     </main>
 
@@ -118,7 +166,7 @@
         <button class="modal-close" id="sources-close" type="button" aria-label="Close">×</button>
       </div>
       <p class="sources-help">
-        Configure Google Sheets, Word/Google Docs, Google Forms (response sheet), or Microsoft Forms.
+        Configure Google Sheets, Word/Google Docs, custom websites, Google Forms (response sheet), or Microsoft Forms.
         Config is saved in this browser and can be shared via URL or JSON.
       </p>
       <div class="sources-toolbar">
@@ -137,6 +185,14 @@
   </div>
 
   <div class="toast hidden" id="toast" role="status" aria-live="polite"></div>
+
+  <div class="loading-overlay hidden" id="loading-overlay" aria-live="polite" aria-busy="false">
+    <div class="loading-dialog" role="status">
+      <div class="loading-spinner" aria-hidden="true"></div>
+      <p class="loading-title" id="loading-title">Loading source…</p>
+      <p class="loading-detail" id="loading-detail"></p>
+    </div>
+  </div>
 
   <div class="slideshow-control" id="slideshow-control">
     <button class="slideshow-toggle" id="slideshow-toggle" type="button" aria-label="Slideshow mode" title="Slideshow mode">
@@ -218,9 +274,36 @@
     </div>
   </div>
 
+  <div class="modal-backdrop hidden" id="bug-modal" aria-hidden="true">
+    <div class="modal-dialog bug-modal-dialog" role="dialog" aria-modal="true" aria-labelledby="bug-modal-title">
+      <button class="modal-close" id="bug-modal-close" type="button" aria-label="Close">×</button>
+      <div class="modal-header">
+        <div>
+          <p class="modal-eyebrow" id="bug-modal-eyebrow"></p>
+          <h2 id="bug-modal-title"></h2>
+        </div>
+        <div class="bug-modal-chips" id="bug-modal-chips"></div>
+      </div>
+      <div class="bug-detail-grid" id="bug-detail-grid"></div>
+    </div>
+  </div>
+
   <script>
     const DEFAULT_SHEET_ID = "1Dt5ae3Cekxnd4XNZr1MdqBfx_vJyVFLeN5j-n-ibSjU";
+    const DEFAULT_BUGS_SHEET_ID = "1E7ucvpw7dOismcoBGWm3wqp_oIo_QBKG";
+    const DEFAULT_BUGS_SHEET_URL =
+      "https://docs.google.com/spreadsheets/d/1E7ucvpw7dOismcoBGWm3wqp_oIo_QBKG/edit?gid=1611749406#gid=1611749406";
     const SOURCES_KEY = "scoreboard-sources-config";
+
+    const DEFAULT_BUG_ANALYSIS_SOURCE = {
+      id: "bugindex",
+      name: "Bug analysis",
+      type: "google_sheet",
+      displayMode: "generic",
+      autoSync: true,
+      connection: { urlOrId: DEFAULT_BUGS_SHEET_URL, tab: "BugIndex" },
+      mapping: { template: "bug_index" },
+    };
 
     const DEFAULT_CONFIG = {
       version: 1,
@@ -231,18 +314,28 @@
           name: "Intrakore Scorecard",
           type: "google_sheet",
           displayMode: "scorecard",
+          autoSync: true,
           connection: { urlOrId: DEFAULT_SHEET_ID, tab: "Scorecard" },
           mapping: { preset: "intrakore_scorecard" },
         },
+        structuredClone(DEFAULT_BUG_ANALYSIS_SOURCE),
       ],
     };
 
     let sourcesConfig = structuredClone(DEFAULT_CONFIG);
     let scoreboardData = null;
+    let loadGeneration = 0;
+    let lastLoadedSourceId = null;
     let genericData = null;
     let activeGenericBoardId = null;
     let moduleSort = "completion";
     let moduleFilter = "all";
+    let bugsData = null;
+    let bugStatusFilter = "all";
+    let bugSeverityFilter = "all";
+    let bugModuleFilter = "all";
+    let bugSearch = "";
+    let displayMode = "scorecard";
     let editingSourceId = null;
     let previewState = null;
     let msFormsConfigured = false;
@@ -299,11 +392,53 @@
       return JSON.parse(new TextDecoder().decode(bytes));
     }
 
+    function isBugAnalysisSource(source) {
+      if (!source) return false;
+      const tab = (source.connection?.tab || "").toLowerCase().replace(/\s+/g, "");
+      const name = (source.name || "").toLowerCase();
+      const url = String(source.connection?.urlOrId || "");
+      return source.id === "bugindex"
+        || source.mapping?.template === "bug_index"
+        || tab === "bugindex"
+        || /bug\s*(index|analysis)|snag/.test(name)
+        || url.includes(DEFAULT_BUGS_SHEET_ID);
+    }
+
+    function syncBugAnalysisSource(source) {
+      const next = { ...source };
+      next.type = "google_sheet";
+      next.autoSync = true;
+      next.connection = {
+        ...(source.connection || {}),
+        urlOrId: DEFAULT_BUGS_SHEET_URL,
+        tab: "BugIndex",
+      };
+      next.mapping = { ...(source.mapping || {}), template: "bug_index" };
+      if (!next.name || /^bug\s*index$/i.test(next.name) || next.id === "bugindex") {
+        next.name = "Bug analysis";
+      }
+      return next;
+    }
+
     function normalizeConfig(raw) {
       if (!raw || typeof raw !== "object") return structuredClone(DEFAULT_CONFIG);
-      const sources = Array.isArray(raw.sources) && raw.sources.length
-        ? raw.sources
+      let sources = Array.isArray(raw.sources) && raw.sources.length
+        ? raw.sources.slice()
         : structuredClone(DEFAULT_CONFIG.sources);
+      let foundBug = false;
+      sources = sources.map((source) => {
+        if (!isBugAnalysisSource(source)) return source;
+        foundBug = true;
+        return syncBugAnalysisSource(source);
+      });
+      if (!foundBug) {
+        sources.push(structuredClone(DEFAULT_BUG_ANALYSIS_SOURCE));
+      }
+      sources = sources.map((source) => (
+        source.autoSync == null && source.type !== "website"
+          ? { ...source, autoSync: true }
+          : source
+      ));
       const activeSourceId = sources.some((s) => s.id === raw.activeSourceId)
         ? raw.activeSourceId
         : sources[0].id;
@@ -326,6 +461,7 @@
       try {
         const saved = JSON.parse(localStorage.getItem(SOURCES_KEY));
         sourcesConfig = normalizeConfig(saved);
+        saveSourcesConfig();
       } catch (_) {
         sourcesConfig = structuredClone(DEFAULT_CONFIG);
       }
@@ -377,20 +513,36 @@
     }
 
     function setDisplayMode(mode) {
+      displayMode = mode;
       const scorecardTabs = document.getElementById("scorecard-tabs");
       const genericTabs = document.getElementById("generic-tabs");
       const isScorecard = mode === "scorecard";
+      const isGeneric = mode === "generic";
+      const isWebsite = mode === "website";
+      const isBugs = mode === "bugs";
       const enteringScorecard = isScorecard && scorecardTabs.classList.contains("hidden");
 
       scorecardTabs.classList.toggle("hidden", !isScorecard);
-      genericTabs.classList.toggle("hidden", isScorecard);
+      genericTabs.classList.toggle("hidden", !isGeneric);
       document.getElementById("slideshow-slides-fields").classList.toggle("hidden", !isScorecard);
-      document.getElementById("slideshow-generic-fields").classList.toggle("hidden", isScorecard);
+      document.getElementById("slideshow-generic-fields").classList.toggle("hidden", !isGeneric);
 
       ["modules", "team", "phases"].forEach((name) => {
-        document.getElementById(`panel-${name}`).classList.toggle("hidden", !isScorecard);
+        const panel = document.getElementById(`panel-${name}`);
+        panel.classList.toggle("hidden", !isScorecard);
+        if (!isScorecard) panel.classList.remove("active");
       });
-      document.getElementById("panel-generic").classList.toggle("hidden", isScorecard);
+      const bugsPanel = document.getElementById("panel-bugs");
+      bugsPanel.classList.toggle("hidden", !isBugs);
+      bugsPanel.classList.toggle("active", isBugs);
+      document.getElementById("panel-generic").classList.toggle("hidden", !isGeneric);
+      if (!isGeneric) document.getElementById("panel-generic").classList.remove("active");
+      document.getElementById("panel-website").classList.toggle("hidden", !isWebsite);
+      if (isWebsite) {
+        document.getElementById("panel-website").classList.add("active");
+      } else {
+        document.getElementById("panel-website").classList.remove("active");
+      }
 
       // Only reset to Module Progress when first entering scorecard mode — not on auto-refresh
       if (enteringScorecard) {
@@ -398,12 +550,136 @@
       }
     }
 
+    const SOURCE_TYPE_LABELS = {
+      google_sheet: "Google Sheet",
+      word_doc: "Document",
+      google_forms: "Google Forms",
+      microsoft_forms: "Microsoft Forms",
+      website: "Website",
+    };
+    const PLACEHOLDER_SOURCE_NAMES = new Set(["New source", "Untitled", ""]);
+
+    function updateHeroTitle(source, extras = {}) {
+      let title = (source.name || "Live Scoreboard").trim();
+      if (extras.documentTitle && PLACEHOLDER_SOURCE_NAMES.has(title)) {
+        title = extras.documentTitle.trim();
+      }
+      if (source.id === "intrakore" && source.displayMode === "scorecard" && !extras.forceName) {
+        title = "Live Scoreboard";
+      }
+      const eyebrow = extras.eyebrow
+        || (source.id === "intrakore" && source.displayMode === "scorecard"
+          ? "Intrakore · Project Plan"
+          : (SOURCE_TYPE_LABELS[source.type] || "Source"));
+      document.getElementById("hero-eyebrow").textContent = eyebrow;
+      document.getElementById("hero-title").textContent = title;
+      document.title = `${title} · Scoreboard`;
+    }
+
+    function showLoading(title, detail) {
+      const overlay = document.getElementById("loading-overlay");
+      document.getElementById("loading-title").textContent = title || "Loading source…";
+      document.getElementById("loading-detail").textContent = detail || "";
+      overlay.classList.remove("hidden");
+      overlay.setAttribute("aria-busy", "true");
+    }
+
+    function hideLoading() {
+      const overlay = document.getElementById("loading-overlay");
+      overlay.classList.add("hidden");
+      overlay.setAttribute("aria-busy", "false");
+    }
+
+    function toEmbedUrl(rawUrl) {
+      const trimmed = (rawUrl || "").trim();
+      if (!trimmed) return "";
+      try {
+        const u = new URL(trimmed);
+        const host = u.hostname.toLowerCase();
+        if (host.includes("docs.google.com") || host.includes("drive.google.com")) {
+          const docMatch = u.pathname.match(/\/document\/d\/([^/]+)/);
+          if (docMatch) return `https://docs.google.com/document/d/${docMatch[1]}/preview`;
+          const sheetMatch = u.pathname.match(/\/spreadsheets\/d\/([^/]+)/);
+          if (sheetMatch) return `https://docs.google.com/spreadsheets/d/${sheetMatch[1]}/preview`;
+          const slidesMatch = u.pathname.match(/\/presentation\/d\/([^/]+)/);
+          if (slidesMatch) {
+            return `https://docs.google.com/presentation/d/${slidesMatch[1]}/embed?start=false&loop=false&delayms=3000`;
+          }
+          const formMatch = u.pathname.match(/\/forms\/d\/(?:e\/)?([^/]+)/);
+          if (formMatch) return `https://docs.google.com/forms/d/e/${formMatch[1]}/viewform?embedded=true`;
+        }
+        return u.href;
+      } catch (_) {
+        return trimmed.startsWith("http") ? trimmed : `https://${trimmed}`;
+      }
+    }
+
+    function renderWebsite(source) {
+      const url = source.connection?.url || source.connection?.urlOrId || "";
+      const embedUrl = toEmbedUrl(url);
+      const frame = document.getElementById("website-frame");
+      const fallback = document.getElementById("website-fallback");
+      const fallbackLink = document.getElementById("website-fallback-link");
+      fallback.classList.remove("hidden");
+      fallbackLink.href = url || embedUrl || "#";
+      if (frame.dataset.src !== embedUrl) {
+        frame.dataset.src = embedUrl;
+        frame.src = embedUrl || "about:blank";
+      }
+      document.getElementById("source-file").innerHTML = url
+        ? `<a href="${esc(url)}" target="_blank" rel="noopener">${esc(source.name)} · website</a>`
+        : `${esc(source.name)} · website`;
+      document.getElementById("hero-stats").innerHTML = `
+        <article class="stat-card stat-primary">
+          <span class="stat-label">View</span>
+          <span class="stat-value" style="font-size:1.05rem">Live site</span>
+          <span class="stat-detail">embedded page</span>
+        </article>
+        <article class="stat-card">
+          <span class="stat-label">Source</span>
+          <span class="stat-value" style="font-size:1rem">Web</span>
+          <span class="stat-detail">custom URL</span>
+        </article>
+        <article class="stat-card">
+          <span class="stat-label">Refresh</span>
+          <span class="stat-value" style="font-size:1rem">Manual</span>
+          <span class="stat-detail">use Refresh to reload</span>
+        </article>
+        <article class="stat-card">
+          <span class="stat-label">Tip</span>
+          <span class="stat-value" style="font-size:0.95rem">Open tab</span>
+          <span class="stat-detail">if embed is blocked</span>
+        </article>
+      `;
+    }
+
+    function maybeApplyDocumentTitle(source, data) {
+      const docTitle = (data?.document_title || "").trim();
+      if (!docTitle) return;
+      if (PLACEHOLDER_SOURCE_NAMES.has((source.name || "").trim())) {
+        source.name = docTitle;
+        const idx = sourcesConfig.sources.findIndex((s) => s.id === source.id);
+        if (idx >= 0) {
+          sourcesConfig.sources[idx].name = docTitle;
+          saveSourcesConfig();
+        }
+      }
+      const textBoard = (data.boards || []).find((b) => b.type === "text_sections");
+      if (textBoard && (!textBoard.title || textBoard.title === "Document")) {
+        textBoard.title = docTitle;
+      }
+    }
+
     function renderHeroScorecard(data) {
       const summary = data.summary || {};
-      const source = data.source_url
+      const source = activeSource();
+      updateHeroTitle(source, {
+        eyebrow: source.id === "intrakore" ? "Intrakore · Project Plan" : (SOURCE_TYPE_LABELS[source.type] || "Google Sheet"),
+      });
+      const sourceLabel = data.source_url
         ? `<a href="${esc(data.source_url)}" target="_blank" rel="noopener">${esc(data.source_file)} · ${esc(data.source_sheet || "Scorecard")}</a>`
         : `${esc(data.source_file)} · ${esc(data.source_sheet || "Scorecard")}`;
-      document.getElementById("source-file").innerHTML = source;
+      document.getElementById("source-file").innerHTML = sourceLabel;
       const completedCount = data.modules.filter(isCompleted).length;
       const ongoingCount = data.modules.filter((mod) => mod.status === "ongoing").length;
       document.getElementById("hero-stats").innerHTML = `
@@ -431,14 +707,36 @@
     }
 
     function renderHeroGeneric(data, source) {
+      maybeApplyDocumentTitle(source, data);
+      updateHeroTitle(source, { documentTitle: data.document_title });
       const boards = data.boards || [];
       const preview = data.raw_preview || {};
-      const label = `${esc(source.name)} · ${esc(source.type.replace(/_/g, " "))}`;
+      const sheetNote = data.source_sheet ? ` · tab ${data.source_sheet}` : "";
+      const label = `${esc(source.name)} · ${esc(source.type.replace(/_/g, " "))}${esc(sheetNote)}`;
       const link = data.source_url
         ? `<a href="${esc(data.source_url)}" target="_blank" rel="noopener">${label}</a>`
         : label;
       document.getElementById("source-file").innerHTML = link;
       const rowCount = preview.row_count ?? preview.response_count ?? 0;
+      const sectionCount = preview.section_count;
+      const useSections = data.kind === "document" && sectionCount != null;
+
+      // Bug / issue sheets: surface severity + status tiles in the hero
+      const statsBoard = boards.find((b) => b.type === "stats");
+      const bugHero = (data.template === "bug_index" || /bug|snag|defect|issue/i.test(data.source_sheet || ""))
+        && statsBoard?.stats?.length;
+      if (bugHero) {
+        const tiles = (statsBoard.stats || []).slice(0, 4);
+        document.getElementById("hero-stats").innerHTML = tiles.map((stat, idx) => `
+          <article class="stat-card ${idx === 0 ? "stat-primary" : ""} ${stat.tone ? toneClass(stat.tone) : ""}">
+            <span class="stat-label">${esc(stat.label)}</span>
+            <span class="stat-value">${esc(stat.value)}</span>
+            <span class="stat-detail">${esc(stat.detail || "")}</span>
+          </article>
+        `).join("");
+        return;
+      }
+
       document.getElementById("hero-stats").innerHTML = `
         <article class="stat-card stat-primary">
           <span class="stat-label">Boards</span>
@@ -446,8 +744,8 @@
           <span class="stat-detail">configured views</span>
         </article>
         <article class="stat-card">
-          <span class="stat-label">Rows</span>
-          <span class="stat-value">${num(rowCount)}</span>
+          <span class="stat-label">${useSections ? "Sections" : "Rows"}</span>
+          <span class="stat-value">${num(useSections ? sectionCount : rowCount)}</span>
           <span class="stat-detail">from source</span>
         </article>
         <article class="stat-card">
@@ -457,7 +755,7 @@
         </article>
         <article class="stat-card">
           <span class="stat-label">Source</span>
-          <span class="stat-value" style="font-size:1rem">${esc(source.type.split("_")[0])}</span>
+          <span class="stat-value" style="font-size:1rem">${esc(SOURCE_TYPE_LABELS[source.type] || source.type)}</span>
           <span class="stat-detail">live</span>
         </article>
       `;
@@ -679,17 +977,242 @@
       }).join("") || `<tr><td colspan="${members.length + 2}">No phase data</td></tr>`;
     }
 
-    function renderTableHtml(columns, rows) {
+    function filteredBugs(data) {
+      const q = bugSearch.trim().toLowerCase();
+      return (data.bugs || []).filter((bug) => {
+        if (bugStatusFilter !== "all" && bug.status !== bugStatusFilter) return false;
+        if (bugSeverityFilter !== "all" && bug.severity !== bugSeverityFilter) return false;
+        if (bugModuleFilter !== "all" && (bug.module || "(none)") !== bugModuleFilter) return false;
+        if (!q) return true;
+        const hay = `${bug.id} ${bug.finding} ${bug.module} ${bug.responsible} ${bug.area}`.toLowerCase();
+        return hay.includes(q);
+      });
+    }
+
+    function fillBugFilterOptions(data) {
+      const sevSel = document.getElementById("bug-severity-filter");
+      const modSel = document.getElementById("bug-module-filter");
+      const severities = data.filters?.severities || [];
+      const modules = data.filters?.modules || [];
+      sevSel.innerHTML = `<option value="all">All severities</option>` +
+        severities.map((s) => `<option value="${esc(s)}">${esc(s)}</option>`).join("");
+      modSel.innerHTML = `<option value="all">All modules</option>` +
+        modules.map((m) => `<option value="${esc(m)}">${esc(m || "(none)")}</option>`).join("");
+      sevSel.value = severities.includes(bugSeverityFilter) ? bugSeverityFilter : "all";
+      modSel.value = modules.includes(bugModuleFilter) ? bugModuleFilter : "all";
+      bugSeverityFilter = sevSel.value;
+      bugModuleFilter = modSel.value;
+    }
+
+    function bugStatusCounts(bugs) {
+      const byStatus = { UNOPENED: 0, OPEN: 0, ACTIONED: 0, CLOSED: 0 };
+      let openCritical = 0;
+      for (const bug of bugs) {
+        const status = bug.status || "UNOPENED";
+        byStatus[status] = (byStatus[status] || 0) + 1;
+        if (status === "OPEN" && bug.severity === "Critical") openCritical += 1;
+      }
+      return { byStatus, openCritical, total: bugs.length };
+    }
+
+    function bugStatusLabel(status) {
+      return ({
+        UNOPENED: "Unopened",
+        OPEN: "Open",
+        ACTIONED: "Actioned",
+        CLOSED: "Closed",
+      })[status] || status || "—";
+    }
+
+    function renderBugsCards(data) {
+      const grid = document.getElementById("bugs-card-grid");
+      const bugs = filteredBugs(data);
+      if (!bugs.length) {
+        grid.innerHTML = `<p class="empty-state">No bugs match these filters.</p>`;
+        return;
+      }
+      grid.innerHTML = bugs.map((bug) => {
+        const verdictTone = bug.verdict
+          ? toneClass(cellToneFor("Bug/ No Bug", bug.verdict))
+          : "";
+        return `
+          <article class="bug-card status-${esc((bug.status || "").toLowerCase())}" data-bug-id="${esc(bug.id)}" tabindex="0" role="button" aria-label="Open ${esc(bug.id)}">
+            <div class="bug-card-top">
+              <span class="bug-card-id">${esc(bug.id)}</span>
+              <span class="meta-chip ${toneClass(bug.status_tone)}">${esc(bugStatusLabel(bug.status))}</span>
+            </div>
+            <dl class="bug-card-meta">
+              <div>
+                <dt>Module</dt>
+                <dd>${esc(bug.module || "—")}</dd>
+              </div>
+              <div>
+                <dt>Area</dt>
+                <dd>${esc(bug.area || "—")}</dd>
+              </div>
+              <div class="bug-card-meta-full">
+                <dt>Responsible</dt>
+                <dd>${esc(bug.responsible || "—")}</dd>
+              </div>
+            </dl>
+            <h3 class="bug-card-finding" title="${esc(bug.finding)}">${esc(bug.finding || "Untitled finding")}</h3>
+            <div class="bug-card-chips">
+              <span class="meta-chip ${toneClass(bug.severity_tone)}" title="Severity">${esc(bug.severity || "—")}</span>
+              ${bug.verdict ? `<span class="meta-chip ${verdictTone}" title="Bug / No Bug">${esc(bug.verdict)}</span>` : ""}
+            </div>
+          </article>
+        `;
+      }).join("");
+      grid.querySelectorAll(".bug-card").forEach((card) => {
+        const open = () => {
+          const bug = (bugsData?.bugs || []).find((b) => b.id === card.dataset.bugId);
+          if (bug) openBugModal(bug);
+        };
+        card.addEventListener("click", open);
+        card.addEventListener("keydown", (event) => {
+          if (event.key === "Enter" || event.key === " ") {
+            event.preventDefault();
+            open();
+          }
+        });
+      });
+    }
+
+    function renderHeroBugs(data, source) {
+      updateHeroTitle(source);
+      const sheetUrl = source.connection?.urlOrId || data.source_url || "";
+      const label = `${esc(source.name)} · BugIndex`;
+      const link = sheetUrl
+        ? `<a href="${esc(sheetUrl)}" target="_blank" rel="noopener">${label}</a>`
+        : label;
+      document.getElementById("source-file").innerHTML = link;
+      const { byStatus, openCritical, total } = bugStatusCounts(filteredBugs(data));
+      document.getElementById("hero-stats").innerHTML = `
+        <article class="stat-card">
+          <span class="stat-label">Unopened</span>
+          <span class="stat-value">${num(byStatus.UNOPENED)}</span>
+          <span class="stat-detail">blank STATUS</span>
+        </article>
+        <article class="stat-card stat-primary">
+          <span class="stat-label">Open</span>
+          <span class="stat-value">${num(byStatus.OPEN)}</span>
+          <span class="stat-detail">${num(openCritical)} critical</span>
+        </article>
+        <article class="stat-card stat-ongoing">
+          <span class="stat-label">Actioned</span>
+          <span class="stat-value">${num(byStatus.ACTIONED)}</span>
+          <span class="stat-detail">in progress</span>
+        </article>
+        <article class="stat-card stat-complete">
+          <span class="stat-label">Closed</span>
+          <span class="stat-value">${num(byStatus.CLOSED)}</span>
+          <span class="stat-detail">${num(total)} matching</span>
+        </article>
+      `;
+    }
+
+    function refreshBugsUi() {
+      if (!bugsData) return;
+      renderHeroBugs(bugsData, activeSource());
+      renderBugsCards(bugsData);
+    }
+
+    function renderBugs(data) {
+      if (!data) {
+        document.getElementById("bugs-card-grid").innerHTML =
+          `<p class="empty-state">Loading bugs…</p>`;
+        return;
+      }
+      const label = document.getElementById("bugs-source-label");
+      const source = activeSource();
+      const sheetUrl = source.connection?.urlOrId || data.source_url || "";
+      if (sheetUrl) {
+        label.innerHTML = `<a href="${esc(sheetUrl)}" target="_blank" rel="noopener">${esc(data.source_file || source.name)} · ${esc(data.source_sheet || "BugIndex")}</a>`;
+      } else {
+        label.textContent = `${data.source_file || "Bug analysis"} · ${data.source_sheet || "BugIndex"}`;
+      }
+      fillBugFilterOptions(data);
+      renderHeroBugs(data, activeSource());
+      renderBugsCards(data);
+    }
+
+    function openBugModal(bug) {
+      const modal = document.getElementById("bug-modal");
+      document.getElementById("bug-modal-eyebrow").textContent = bug.id;
+      document.getElementById("bug-modal-title").textContent = bug.finding || bug.id;
+      document.getElementById("bug-modal-chips").innerHTML = `
+        <span class="meta-chip ${toneClass(bug.severity_tone)}">${esc(bug.severity)}</span>
+        <span class="meta-chip ${toneClass(bug.status_tone)}">${esc(bug.status)}</span>
+        ${bug.verdict ? `<span class="meta-chip ${toneClass(cellToneFor("Bug/ No Bug", bug.verdict))}">${esc(bug.verdict)}</span>` : ""}
+        ${bug.module ? `<span class="meta-chip tone-neutral">${esc(bug.module)}</span>` : ""}
+      `;
+      const details = bug.details || {};
+      const order = [
+        "Responsible", "Area", "Modules", "Steps to reproduce", "Actual result",
+        "Expected result", "Why it matters", "CORRECTION / EXPLANATION", "Evidence",
+      ];
+      document.getElementById("bug-detail-grid").innerHTML = order
+        .filter((key) => details[key])
+        .map((key) => `
+          <article class="bug-detail-block">
+            <h3>${esc(key)}</h3>
+            <p>${esc(details[key])}</p>
+          </article>
+        `).join("") || `<p class="empty-state">No further detail on this row.</p>`;
+      modal.classList.remove("hidden");
+      modal.setAttribute("aria-hidden", "false");
+      document.body.classList.add("modal-open");
+    }
+
+    function closeBugModal() {
+      const modal = document.getElementById("bug-modal");
+      modal.classList.add("hidden");
+      modal.setAttribute("aria-hidden", "true");
+      if (document.getElementById("module-modal").classList.contains("hidden")) {
+        document.body.classList.remove("modal-open");
+      }
+    }
+
+    function cellToneFor(column, value) {
+      const c = String(column || "");
+      const v = String(value || "").trim().toLowerCase();
+      if (/severity|priority/i.test(c)) {
+        if (v === "critical" || v === "blocker") return "critical";
+        if (v === "high" || v === "major") return "high";
+        if (v === "medium" || v === "moderate") return "medium";
+        if (v === "low" || v === "minor" || v === "trivial") return "low";
+      } else if (/bug/i.test(c)) {
+        if (v === "bug" || v === "yes") return "bug";
+        if (v === "no bug" || v === "not a bug" || v === "no") return "nobug";
+        return "tbc";
+      } else if (/status|state/i.test(c)) {
+        if (["unopened", "untouched", "not started", "blank"].includes(v)) return "tbc";
+        if (["open", "new", "pending", "reopened"].includes(v)) return "open";
+        if (["actioned", "in progress", "ongoing", "active", "wip"].includes(v)) return "wip";
+        if (["fixed", "closed", "done", "resolved", "complete", "completed"].includes(v)) return "done";
+      }
+      return "neutral";
+    }
+
+    function renderTableHtml(columns, rows, opts = {}) {
       if (!columns?.length) return `<p class="empty-state">No columns configured.</p>`;
+      const emphasis = new Set(opts.emphasisColumns || []);
       return `
         <div class="table-wrap generic-table-wrap">
-          <table>
+          <table class="generic-data-table">
             <thead>
-              <tr>${columns.map((c) => `<th>${esc(c)}</th>`).join("")}</tr>
+              <tr>${columns.map((c) => `<th class="${emphasis.has(c) ? "col-emphasis" : ""}">${esc(c)}</th>`).join("")}</tr>
             </thead>
             <tbody>
               ${rows.map((row) => `
-                <tr>${columns.map((c) => `<td>${esc(row[c] ?? "—")}</td>`).join("")}</tr>
+                <tr>${columns.map((c) => {
+                  const raw = row[c];
+                  const { display, full } = truncateCell(raw, emphasis.has(c) ? 48 : 140);
+                  if (emphasis.has(c) && display !== "—") {
+                    return `<td class="col-emphasis"><span class="meta-chip ${toneClass(cellToneFor(c, raw))}" title="${esc(full)}">${esc(display)}</span></td>`;
+                  }
+                  return `<td title="${esc(full)}">${esc(display)}</td>`;
+                }).join("")}</tr>
               `).join("") || `<tr><td colspan="${columns.length}">No rows</td></tr>`}
             </tbody>
           </table>
@@ -697,16 +1220,66 @@
       `;
     }
 
+    function pickDefaultBoardId(boards, data) {
+      const sheet = (data?.source_sheet || "").trim();
+      const template = (data?.template || "").trim();
+      // Non-progress sheets (bug index, simple table, …): land on the data table
+      if (template === "bug_index" || template === "simple_table") {
+        const table = boards.find((b) => b.type === "table" || b.id === "table");
+        if (table) return table.id;
+      }
+      if (sheet) {
+        const byTitle = boards.find((b) => b.title === sheet);
+        if (byTitle) return byTitle.id;
+      }
+      // Prefer table over progress cards when activating a generic sheet
+      if (template && template !== "status_tracker") {
+        const table = boards.find((b) => b.type === "table" || b.id === "table");
+        if (table) return table.id;
+      }
+      const table = boards.find((b) => b.type === "table" || b.id === "table");
+      if (table) return table.id;
+      return boards[0]?.id || null;
+    }
+
+    function toneClass(tone) {
+      const t = (tone || "neutral").toLowerCase();
+      return `tone-${t.replace(/[^a-z0-9_-]/g, "")}`;
+    }
+
+    function truncateCell(value, max = 140) {
+      const text = value == null || value === "" ? "—" : String(value);
+      if (text === "—" || text.length <= max) {
+        return { display: text, full: text };
+      }
+      return { display: `${text.slice(0, max - 1)}…`, full: text };
+    }
+
+    function metaChipHtml(meta) {
+      if (!meta?.length) return "";
+      return `
+        <div class="generic-card-meta">
+          ${meta.map((m) => `
+            <span class="meta-chip ${toneClass(m.tone)}" title="${esc(m.label)}">
+              <span class="meta-chip-value">${esc(m.value)}</span>
+            </span>
+          `).join("")}
+        </div>
+      `;
+    }
+
     function renderGenericBoard(board) {
       const titleEl = document.getElementById("generic-board-title");
       const body = document.getElementById("generic-board-body");
+      const header = titleEl.closest(".panel-header");
       titleEl.textContent = board.title || "Board";
+      if (header) header.classList.toggle("hidden", board.type === "text_sections");
 
       if (board.type === "stats") {
         body.innerHTML = `
           <div class="hero-stats generic-stats">
             ${(board.stats || []).map((stat) => `
-              <article class="stat-card">
+              <article class="stat-card ${stat.tone ? toneClass(stat.tone) : ""}">
                 <span class="stat-label">${esc(stat.label)}</span>
                 <span class="stat-value">${esc(stat.value)}</span>
                 <span class="stat-detail">${esc(stat.detail || "")}</span>
@@ -725,10 +1298,11 @@
               return `
                 <article class="module-card ${done ? "module-card-complete" : ""}">
                   <div class="module-card-top">
-                    <h3>${esc(card.title)}</h3>
+                    <h3>${esc(card.title || "—")}</h3>
                     ${done ? `<span class="priority-badge complete-badge">Complete</span>` : ""}
                   </div>
                   ${card.subtitle ? `<p class="generic-card-sub">${esc(card.subtitle)}</p>` : ""}
+                  ${metaChipHtml(card.meta)}
                   ${card.progress != null ? `
                     <div class="module-completion">
                       <span class="module-pct">${pct(card.progress)}</span>
@@ -749,14 +1323,25 @@
       }
 
       if (board.type === "text_sections") {
+        const sections = board.sections || [];
         body.innerHTML = `
-          <div class="doc-sections">
-            ${(board.sections || []).map((section) => `
-              <article class="doc-section">
-                <h3>${esc(section.heading)}</h3>
-                ${(section.paragraphs || []).map((p) => `<p>${esc(p)}</p>`).join("")}
-              </article>
-            `).join("") || `<p class="empty-state">No document sections</p>`}
+          <div class="doc-view">
+            <header class="doc-view-header">
+              <p class="doc-view-kicker">Document</p>
+              <h3 class="doc-view-title">${esc(board.title || "Document")}</h3>
+              <p class="doc-view-meta">${sections.length} section${sections.length === 1 ? "" : "s"}</p>
+            </header>
+            <div class="doc-sections">
+              ${sections.map((section) => {
+                const level = Math.min(Math.max(Number(section.level) || 1, 1), 4);
+                return `
+                  <article class="doc-section doc-level-${level}">
+                    <h3 class="doc-heading">${esc(section.heading)}</h3>
+                    ${(section.paragraphs || []).map((p) => `<p>${esc(p)}</p>`).join("")}
+                  </article>
+                `;
+              }).join("") || `<p class="empty-state">No document sections</p>`}
+            </div>
           </div>
         `;
         return;
@@ -776,23 +1361,26 @@
         return;
       }
 
-      body.innerHTML = renderTableHtml(board.columns || [], board.rows || []);
+      body.innerHTML = renderTableHtml(board.columns || [], board.rows || [], {
+        emphasisColumns: board.emphasisColumns || [],
+      });
     }
 
-    function renderGeneric(data) {
+    function renderGeneric(data, opts = {}) {
       genericData = data;
       const boards = data.boards || [];
       const tabs = document.getElementById("generic-tabs");
       if (!boards.length) {
         tabs.innerHTML = "";
+        document.getElementById("generic-board-title").textContent = "Board";
         document.getElementById("generic-board-body").innerHTML = `<p class="empty-state">No boards configured for this source.</p>`;
         return;
       }
-      if (!activeGenericBoardId || !boards.some((b) => b.id === activeGenericBoardId)) {
-        activeGenericBoardId = boards[0].id;
+      if (opts.resetBoard || !activeGenericBoardId || !boards.some((b) => b.id === activeGenericBoardId)) {
+        activeGenericBoardId = pickDefaultBoardId(boards, data);
       }
       tabs.innerHTML = boards.map((board) => `
-        <button class="tab ${board.id === activeGenericBoardId ? "active" : ""}" type="button" data-board-id="${esc(board.id)}">
+        <button class="tab ${board.id === activeGenericBoardId ? "active" : ""}" type="button" data-board-id="${esc(board.id)}" aria-selected="${board.id === activeGenericBoardId ? "true" : "false"}">
           ${esc(board.title || board.type)}
         </button>
       `).join("");
@@ -800,7 +1388,9 @@
       tabs.querySelectorAll(".tab").forEach((btn) => {
         btn.addEventListener("click", () => {
           if (slideshow.running) return;
-          activeGenericBoardId = btn.dataset.boardId;
+          const nextId = btn.getAttribute("data-board-id");
+          if (!nextId || nextId === activeGenericBoardId) return;
+          activeGenericBoardId = nextId;
           renderGeneric(genericData);
         });
       });
@@ -835,19 +1425,88 @@
         panel.classList.toggle("active", name === tabName);
       });
       document.getElementById("panel-generic").classList.remove("active");
+      document.getElementById("panel-bugs").classList.remove("active");
     }
 
-    async function loadActiveSource(forceRefresh = true) {
+    function showSourceError(message, source) {
+      updateHeroTitle(source || activeSource());
+      document.getElementById("source-file").textContent = message || "Failed to load source";
+      document.getElementById("hero-stats").innerHTML = "";
+      scoreboardData = null;
+      genericData = null;
+      bugsData = null;
+      activeGenericBoardId = null;
+      const src = source || activeSource();
+      const mode = src.displayMode === "website"
+        ? "website"
+        : (src.mapping?.template === "bug_index" || (src.connection?.tab || "").toLowerCase() === "bugindex")
+          ? "bugs"
+          : (src.displayMode === "scorecard" ? "scorecard" : "generic");
+      setDisplayMode(mode);
+      if (mode === "generic") {
+        document.getElementById("generic-tabs").innerHTML = "";
+        document.getElementById("generic-board-title").textContent = "Board";
+        document.getElementById("generic-board-body").innerHTML =
+          `<p class="empty-state">${esc(message || "Failed to load source")}</p>`;
+        document.getElementById("panel-generic").classList.add("active");
+      } else if (mode === "scorecard") {
+        document.getElementById("module-grid").innerHTML =
+          `<p class="empty-state">${esc(message || "Failed to load source")}</p>`;
+      } else if (mode === "bugs") {
+        document.getElementById("bugs-card-grid").innerHTML =
+          `<p class="empty-state">${esc(message || "Failed to load source")}</p>`;
+      }
+    }
+
+    async function loadActiveSource(forceRefresh = true, opts = {}) {
       const refreshBtn = document.getElementById("refresh-btn");
       const refreshIcon = document.getElementById("refresh-icon");
       refreshBtn.disabled = true;
       refreshIcon.classList.add("spinning");
 
       const source = activeSource();
+      const sourceId = source.id;
+      const gen = ++loadGeneration;
+      const switchingSource = opts.fromActivate || lastLoadedSourceId !== sourceId;
+      if (switchingSource) {
+        activeGenericBoardId = null;
+      }
+
+      const showPopup = !!opts.fromActivate || !!opts.showLoading;
+      if (showPopup) {
+        showLoading(
+          opts.fromActivate ? "Activating source…" : "Loading source…",
+          source.name || "Please wait",
+        );
+      }
+
       try {
-        let data;
+        if (source.type === "website" || source.displayMode === "website") {
+          if (!source.connection?.url && source.connection?.urlOrId) {
+            source.connection.url = source.connection.urlOrId;
+          }
+          if (gen !== loadGeneration || activeSource().id !== sourceId) return;
+          setDisplayMode("website");
+          updateHeroTitle(source);
+          if (forceRefresh) {
+            const frame = document.getElementById("website-frame");
+            delete frame.dataset.src;
+          }
+          scoreboardData = null;
+          genericData = null;
+          bugsData = null;
+          renderWebsite(source);
+          lastLoadedSourceId = sourceId;
+          const syncedAt = new Date().toLocaleTimeString();
+          document.getElementById("updated-at").textContent =
+            `${source.name} embedded ${syncedAt} · Refresh reloads the page`;
+          return;
+        }
+
         if (source.type === "word_doc" && source.connection?.uploadPending) {
-          document.getElementById("source-file").textContent = "Upload a .docx in Sources to load this source.";
+          if (gen !== loadGeneration || activeSource().id !== sourceId) return;
+          showSourceError("Upload a .docx in Sources to load this source.", source);
+          lastLoadedSourceId = sourceId;
           return;
         }
 
@@ -862,9 +1521,11 @@
             refresh: forceRefresh,
           }),
         });
-        data = await response.json();
+        const data = await response.json();
+        if (gen !== loadGeneration || activeSource().id !== sourceId) return;
+
         if (!response.ok) {
-          document.getElementById("source-file").textContent = data.error || "Failed to load source";
+          showSourceError(data.error || "Failed to load source", source);
           return;
         }
 
@@ -873,12 +1534,16 @@
           : new Date().toLocaleTimeString();
         const cacheNote = data.from_cache ? " · cached" : " · live from source";
         document.getElementById("updated-at").textContent =
-          `${esc(source.name)} synced ${syncedAt}${cacheNote} · auto-refreshes every 30s`;
+          `${source.name} synced ${syncedAt}${cacheNote} · auto-refreshes every 30s`;
 
-        if (data.mode === "scorecard" || source.displayMode === "scorecard") {
+        // Prefer server mode; only fall back to client displayMode when server omitted it
+        const mode = data.mode || source.displayMode || "generic";
+        if (mode === "scorecard") {
           setDisplayMode("scorecard");
           scoreboardData = data;
           genericData = null;
+          bugsData = null;
+          activeGenericBoardId = null;
           renderHeroScorecard(data);
           if (slideshow.running && slideshow.slides[slideshow.index]?.type === "modules") {
             renderModules(data, slideshow.slides[slideshow.index].filter);
@@ -887,19 +1552,32 @@
           }
           renderTeam(data);
           renderPhases(data);
+        } else if (mode === "bugs") {
+          setDisplayMode("bugs");
+          scoreboardData = null;
+          genericData = null;
+          activeGenericBoardId = null;
+          bugsData = data;
+          renderBugs(data);
+          document.getElementById("updated-at").textContent =
+            `${source.name} synced ${syncedAt}${cacheNote} · auto-sync every 30s`;
         } else {
           setDisplayMode("generic");
           scoreboardData = null;
+          bugsData = null;
           renderHeroGeneric(data, source);
-          renderGeneric(data);
+          renderGeneric(data, { resetBoard: switchingSource });
           if (slideshow.running && slideshow.slides[slideshow.index]?.boardId) {
             activeGenericBoardId = slideshow.slides[slideshow.index].boardId;
             renderGeneric(data);
           }
         }
+        lastLoadedSourceId = sourceId;
       } catch (err) {
-        document.getElementById("source-file").textContent = err.message || "Failed to load source";
+        if (gen !== loadGeneration || activeSource().id !== sourceId) return;
+        showSourceError(err.message || "Failed to load source", activeSource());
       } finally {
+        if (showPopup) hideLoading();
         refreshBtn.disabled = false;
         refreshIcon.classList.remove("spinning");
       }
@@ -973,12 +1651,15 @@
       `).join("");
 
       list.querySelectorAll("[data-activate]").forEach((btn) => {
-        btn.addEventListener("click", () => {
-          sourcesConfig.activeSourceId = btn.dataset.activate;
+        btn.addEventListener("click", async () => {
+          const nextId = btn.dataset.activate;
+          const nextSource = sourcesConfig.sources.find((s) => s.id === nextId);
+          sourcesConfig.activeSourceId = nextId;
           saveSourcesConfig();
           renderSourcesList();
           closeSourcesModal();
-          loadActiveSource(true);
+          showLoading("Activating source…", nextSource?.name || "Please wait");
+          await loadActiveSource(true, { fromActivate: true });
         });
       });
       list.querySelectorAll("[data-edit]").forEach((btn) => {
@@ -1028,6 +1709,7 @@
             <select id="ed-type">
               <option value="google_sheet" ${source.type === "google_sheet" ? "selected" : ""}>Google Sheet</option>
               <option value="word_doc" ${source.type === "word_doc" ? "selected" : ""}>Word / Google Doc</option>
+              <option value="website" ${source.type === "website" ? "selected" : ""}>Custom website</option>
               <option value="google_forms" ${source.type === "google_forms" ? "selected" : ""}>Google Forms (response sheet)</option>
               <option value="microsoft_forms" ${source.type === "microsoft_forms" ? "selected" : ""}>Microsoft Forms</option>
             </select>
@@ -1035,13 +1717,22 @@
           <label id="ed-url-label"><span class="field-label" id="ed-url-label-text">URL or ID</span>
             <input id="ed-url" value="${esc(source.connection?.urlOrId || source.connection?.url || source.connection?.formId || "")}">
           </label>
-          <label id="ed-tab-wrap"><span class="field-label">Sheet tab</span>
-            <input id="ed-tab" value="${esc(source.connection?.tab || "")}" placeholder="Auto / Scorecard">
-          </label>
-          <label><span class="field-label">Display mode</span>
+          <div id="ed-tab-wrap" class="ed-tab-field">
+            <span class="field-label">Sheet tab</span>
+            <div class="ed-tab-row">
+              <select id="ed-tab">
+                <option value="">Auto (first tab)</option>
+                ${source.connection?.tab ? `<option value="${esc(source.connection.tab)}" selected>${esc(source.connection.tab)}</option>` : ""}
+              </select>
+              <button type="button" id="ed-load-tabs" class="sources-action" title="Fetch tab names from this Google Sheet">Load sheets</button>
+            </div>
+            <p id="ed-tab-hint" class="ed-tab-hint">Paste the Sheet link, then Load sheets to pick a tab.</p>
+          </div>
+          <label id="ed-mode-wrap"><span class="field-label">Display mode</span>
             <select id="ed-mode">
               <option value="scorecard" ${source.displayMode === "scorecard" ? "selected" : ""}>Scorecard (modules / team / phases)</option>
               <option value="generic" ${source.displayMode === "generic" ? "selected" : ""}>Generic boards</option>
+              <option value="website" ${source.displayMode === "website" ? "selected" : ""}>Embedded website</option>
             </select>
           </label>
           <label id="ed-file-wrap" class="hidden"><span class="field-label">Upload .docx</span>
@@ -1061,15 +1752,25 @@
         const type = document.getElementById("ed-type").value;
         const tabWrap = document.getElementById("ed-tab-wrap");
         const fileWrap = document.getElementById("ed-file-wrap");
+        const modeWrap = document.getElementById("ed-mode-wrap");
+        const modeSelect = document.getElementById("ed-mode");
         const urlLabelText = document.getElementById("ed-url-label-text");
         tabWrap.classList.toggle("hidden", !(type === "google_sheet" || type === "google_forms"));
         fileWrap.classList.toggle("hidden", type !== "word_doc");
-        if (type === "microsoft_forms") {
-          urlLabelText.textContent = "Form ID";
-        } else if (type === "word_doc") {
-          urlLabelText.textContent = "Google Doc / .docx URL";
+        if (type === "website") {
+          modeSelect.value = "website";
+          modeWrap.classList.add("hidden");
+          urlLabelText.textContent = "Website URL";
         } else {
-          urlLabelText.textContent = "URL or ID";
+          modeWrap.classList.remove("hidden");
+          if (modeSelect.value === "website") modeSelect.value = "generic";
+          if (type === "microsoft_forms") {
+            urlLabelText.textContent = "Form ID";
+          } else if (type === "word_doc") {
+            urlLabelText.textContent = "Google Doc / .docx URL";
+          } else {
+            urlLabelText.textContent = "URL or ID";
+          }
         }
       };
       document.getElementById("ed-type").addEventListener("change", syncTypeFields);
@@ -1083,21 +1784,116 @@
       });
       document.getElementById("ed-preview").addEventListener("click", () => runPreview(source));
       document.getElementById("ed-save").addEventListener("click", () => saveEditor(source));
+      document.getElementById("ed-load-tabs")?.addEventListener("click", () => loadSheetTabsFromEditor(source));
+      document.getElementById("ed-url")?.addEventListener("change", () => {
+        const type = document.getElementById("ed-type").value;
+        if (type === "google_sheet" || type === "google_forms") {
+          // Clear stale tab options when the sheet link changes (keep current selection text if still typed)
+          const current = document.getElementById("ed-tab")?.value || "";
+          populateSheetTabSelect([], current);
+        }
+      });
 
       requestAnimationFrame(() => {
         editor.scrollIntoView({ behavior: "smooth", block: "nearest" });
         document.getElementById("ed-name")?.focus();
+        const type = source.type;
+        if ((type === "google_sheet" || type === "google_forms") && (source.connection?.urlOrId || source.connection?.url)) {
+          loadSheetTabsFromEditor(source, { quiet: true });
+        }
       });
     }
+
+    function populateSheetTabSelect(sheetNames, selectedTab) {
+      const select = document.getElementById("ed-tab");
+      const hint = document.getElementById("ed-tab-hint");
+      if (!select) return;
+      const names = Array.isArray(sheetNames) ? sheetNames.filter(Boolean) : [];
+      const selected = (selectedTab || "").trim();
+      const options = [`<option value="">Auto (first tab)</option>`];
+      names.forEach((name) => {
+        options.push(
+          `<option value="${esc(name)}" ${name === selected ? "selected" : ""}>${esc(name)}</option>`
+        );
+      });
+      // Keep a saved tab that isn't in the list yet (e.g. load failed / renamed)
+      if (selected && !names.includes(selected)) {
+        options.push(`<option value="${esc(selected)}" selected>${esc(selected)} (saved)</option>`);
+      }
+      select.innerHTML = options.join("");
+      if (hint) {
+        hint.textContent = names.length
+          ? `${names.length} tab${names.length === 1 ? "" : "s"} found — pick which sheet to use.`
+          : "Paste the Sheet link, then Load sheets to pick a tab.";
+      }
+    }
+
+    async function loadSheetTabsFromEditor(source, opts = {}) {
+      const type = document.getElementById("ed-type")?.value || source.type;
+      if (!(type === "google_sheet" || type === "google_forms")) return;
+      const url = document.getElementById("ed-url")?.value.trim() || "";
+      const currentTab = document.getElementById("ed-tab")?.value.trim() || source.connection?.tab || "";
+      const hint = document.getElementById("ed-tab-hint");
+      const btn = document.getElementById("ed-load-tabs");
+      if (!url) {
+        if (!opts.quiet) alert("Paste a Google Sheet URL or ID first.");
+        return;
+      }
+      if (btn) btn.disabled = true;
+      if (hint) hint.textContent = "Loading tabs…";
+      try {
+        const params = new URLSearchParams({ type, urlOrId: url });
+        if (currentTab) params.set("tab", currentTab);
+        const res = await fetch(`/api/source/preview?${params}`);
+        const data = await res.json();
+        if (!res.ok && !(data.sheet_names || []).length) {
+          throw new Error(data.error || "Could not load sheet tabs");
+        }
+        const names = data.sheet_names || [];
+        let pick = currentTab;
+        // Only auto-select Scorecard for scorecard-mode sources (e.g. Intrakore default)
+        if (
+          !pick
+          && names.includes("Scorecard")
+          && type === "google_sheet"
+          && (document.getElementById("ed-mode")?.value || source.displayMode) === "scorecard"
+        ) {
+          pick = "Scorecard";
+        }
+        populateSheetTabSelect(names, pick);
+        if (source.connection) {
+          const chosen = document.getElementById("ed-tab")?.value || "";
+          source.connection.tab = chosen || undefined;
+        }
+        if (previewState) {
+          previewState.sheet_names = names;
+          if (data.source_sheet) previewState.source_sheet = data.source_sheet;
+        }
+      } catch (err) {
+        if (hint) hint.textContent = err.message || String(err);
+        if (!opts.quiet) {
+          const out = document.getElementById("ed-preview-out");
+          if (out) {
+            out.classList.remove("hidden");
+            out.textContent = err.message || String(err);
+          }
+        }
+      } finally {
+        if (btn) btn.disabled = false;
+      }
+    }
+
     function readEditorFields(source) {
       const type = document.getElementById("ed-type").value;
       const url = document.getElementById("ed-url").value.trim();
       source.name = document.getElementById("ed-name").value.trim() || "Untitled";
       source.type = type;
-      source.displayMode = document.getElementById("ed-mode").value;
+      source.displayMode = type === "website"
+        ? "website"
+        : document.getElementById("ed-mode").value;
       if (type === "microsoft_forms") {
         source.connection = { formId: url };
-      } else if (type === "word_doc") {
+      } else if (type === "word_doc" || type === "website") {
         source.connection = { url };
       } else {
         source.connection = {
@@ -1110,11 +1906,39 @@
 
     async function runPreview(source) {
       readEditorFields(source);
+      // Keep in-progress advanced board edits if Preview is clicked again
+      if (document.querySelector("#ed-mapping .mapping-board")) {
+        source.mapping = collectMappingFromEditor(source, previewState || {});
+      }
       const out = document.getElementById("ed-preview-out");
       out.classList.remove("hidden");
       out.textContent = "Loading preview…";
 
       try {
+        if (source.type === "website") {
+          const url = source.connection.url || "";
+          if (!url) throw new Error("Provide a website URL");
+          const embedUrl = toEmbedUrl(url);
+          source.displayMode = "website";
+          source.mapping = { boards: [] };
+          previewState = {
+            type: "website",
+            url,
+            embed_url: embedUrl,
+            suggested_display_mode: "website",
+            suggested_mapping: { boards: [] },
+          };
+          out.innerHTML = `
+            <p><strong>Website ready</strong> · will embed as the live display</p>
+            <p>URL: ${esc(url)}</p>
+            <p>Embed: ${esc(embedUrl)}</p>
+            <p class="source-warn">Some sites block iframe embedding. If blank, use “Open in a new tab”.</p>
+          `;
+          document.getElementById("ed-mapping").classList.add("hidden");
+          document.getElementById("ed-mapping").innerHTML = "";
+          return;
+        }
+
         if (source.type === "word_doc") {
           const fileInput = document.getElementById("ed-file");
           if (fileInput.files?.[0]) {
@@ -1147,16 +1971,48 @@
           }
         }
 
+        if (previewState.document_title && PLACEHOLDER_SOURCE_NAMES.has(source.name)) {
+          source.name = previewState.document_title;
+          const nameInput = document.getElementById("ed-name");
+          if (nameInput) nameInput.value = previewState.document_title;
+        }
+
         if (previewState.suggested_display_mode) {
-          document.getElementById("ed-mode").value = previewState.suggested_display_mode;
-          source.displayMode = previewState.suggested_display_mode;
+          const selectedTab = (source.connection?.tab || "").trim();
+          // Never force scorecard when the user explicitly picked another sheet tab
+          const mode = selectedTab && selectedTab !== "Scorecard"
+            ? "generic"
+            : previewState.suggested_display_mode;
+          document.getElementById("ed-mode").value = mode;
+          source.displayMode = mode;
+          previewState.suggested_display_mode = mode;
         }
         if (previewState.suggested_mapping) {
-          source.mapping = previewState.suggested_mapping;
+          const hasCustomBoards = Array.isArray(source.mapping?.boards) && source.mapping.boards.length > 0;
+          if (hasCustomBoards) {
+            // Preserve user boards / template / roles; Preview only refreshes sniff data
+          } else if (source.displayMode === "generic" && previewState.suggested_mapping.preset === "intrakore_scorecard") {
+            // Keep preview mapping empty so layout designer builds generic boards
+            source.mapping = { boards: [] };
+          } else {
+            source.mapping = previewState.suggested_mapping;
+          }
+        }
+
+        if (previewState.sheet_names) {
+          populateSheetTabSelect(
+            previewState.sheet_names,
+            source.connection?.tab || document.getElementById("ed-tab")?.value || ""
+          );
         }
 
         out.innerHTML = `
-          <p><strong>Preview OK</strong> · mode suggestion: ${esc(previewState.suggested_display_mode || "generic")}</p>
+          <p><strong>Preview OK</strong> · mode: ${esc(previewState.suggested_display_mode || "generic")}${
+            previewState.suggested_template || previewState.suggested_mapping?.template
+              ? ` · layout: ${esc(previewState.suggested_template || previewState.suggested_mapping.template)}`
+              : ""
+          }</p>
+          ${previewState.document_title ? `<p>Document title: ${esc(previewState.document_title)}</p>` : ""}
           ${previewState.error ? `<p class="source-warn">${esc(previewState.error)}</p>` : ""}
           ${previewState.sheet_names ? `<p>Tabs: ${esc((previewState.sheet_names || []).join(", "))}</p>` : ""}
           ${previewState.columns ? `<p>Columns: ${esc((previewState.columns || []).join(", "))}</p>` : ""}
@@ -1170,9 +2026,253 @@
       }
     }
 
+    const LAYOUT_TEMPLATES_FALLBACK = [
+      { id: "bug_index", label: "Bug / issue index", description: "Severity · bug/no-bug · status table with summary and finding cards" },
+      { id: "status_tracker", label: "Status tracker", description: "Stats, progress cards, and a full table" },
+      { id: "summary_cards", label: "Summary + cards", description: "Overview stats with a card grid and table" },
+      { id: "team_roster", label: "Team roster", description: "People cards (name + role/team) and table" },
+      { id: "form_responses", label: "Form responses", description: "Response summary plus a responses table" },
+      { id: "simple_table", label: "Simple table", description: "Table only — best for wide or mixed sheets" },
+      { id: "document", label: "Document", description: "Text sections and embedded tables" },
+    ];
+
+    const BOARD_TYPE_FIELDS = {
+      stats: { columns: true },
+      table: { columns: true },
+      form_summary: { columns: true },
+      card_grid: { title: true, subtitle: true, progress: true, meta: true },
+      text_sections: {},
+      tables: { tableIndex: true },
+    };
+
+    function layoutTemplatesList(preview) {
+      return preview?.layout_templates?.length
+        ? preview.layout_templates
+        : (preview?.suggested_mapping?.templates || LAYOUT_TEMPLATES_FALLBACK);
+    }
+
+    function readColumnRolesFromMapper(columns, fallback) {
+      const roles = { ...(fallback || {}) };
+      const title = document.getElementById("ld-title")?.value;
+      const subtitle = document.getElementById("ld-subtitle")?.value;
+      const progress = document.getElementById("ld-progress")?.value;
+      const owner = document.getElementById("ld-owner")?.value;
+      if (title !== undefined) roles.title = title || null;
+      if (subtitle !== undefined) roles.subtitle = subtitle || null;
+      if (progress !== undefined) roles.progress = progress || null;
+      if (owner !== undefined) roles.owner = owner || null;
+      if (!roles.title && columns[0]) roles.title = columns[0];
+      return roles;
+    }
+
+    function buildBoardsForTemplate(templateId, columns, roles, preview) {
+      const titleField = roles?.title || columns[0] || null;
+      const subtitleField = roles?.subtitle || roles?.owner || roles?.status || (columns[1] || null);
+      const progressField = roles?.progress || roles?.status || null;
+      const sheetTitle = preview?.source_sheet
+        || document.getElementById("ed-tab")?.value?.trim()
+        || "Data";
+
+      if (templateId === "document") {
+        const boards = [{ id: "doc-text", type: "text_sections", title: preview?.document_title || "Document" }];
+        (preview?.tables || []).forEach((t) => {
+          boards.push({
+            id: `doc-table-${t.index ?? 0}`,
+            type: "tables",
+            title: t.title || "Table",
+            tableIndex: t.index ?? 0,
+          });
+        });
+        return boards;
+      }
+      if (templateId === "form_responses") {
+        const boards = [{ id: "form-summary", type: "form_summary", title: "Form responses" }];
+        if (columns.length) {
+          boards.push({ id: "table", type: "table", title: "Responses", columns: columns.slice() });
+        }
+        return boards;
+      }
+      if (templateId === "simple_table") {
+        return [{ id: "table", type: "table", title: sheetTitle, columns: columns.slice() }];
+      }
+      if (templateId === "bug_index") {
+        if (!columns.length) return [];
+        const meta = [roles?.severity, roles?.verdict, roles?.status, roles?.id].filter(Boolean);
+        const preferred = [
+          roles?.id, roles?.severity, roles?.title, roles?.subtitle, roles?.owner,
+          roles?.verdict, roles?.status, "ID", "Severity", "Modules", "Area", "Finding",
+          "Responsible", "Bug/ No Bug", "STATUS", "#",
+        ];
+        const tableCols = [];
+        preferred.forEach((c) => {
+          if (c && columns.includes(c) && !tableCols.includes(c)) tableCols.push(c);
+        });
+        if (tableCols.length < 3) {
+          columns.forEach((c) => { if (!tableCols.includes(c) && tableCols.length < 8) tableCols.push(c); });
+        }
+        const statsCols = [roles?.severity, roles?.verdict, roles?.status]
+          .filter((c) => c && columns.includes(c));
+        columns.forEach((c) => { if (!statsCols.includes(c) && statsCols.length < 3) statsCols.push(c); });
+        return [
+          {
+            id: "table",
+            type: "table",
+            title: sheetTitle,
+            columns: tableCols,
+            emphasisColumns: [roles?.severity, roles?.verdict, roles?.status].filter(Boolean),
+          },
+          { id: "stats", type: "stats", title: "Breakdown", columns: statsCols.slice(0, 3), aggregate: "count" },
+          {
+            id: "cards",
+            type: "card_grid",
+            title: "Findings",
+            titleField,
+            subtitleField,
+            progressField: null,
+            metaFields: meta,
+            sortCompletedFirst: false,
+          },
+        ];
+      }
+      if (templateId === "team_roster") {
+        if (!columns.length) return [];
+        return [
+          {
+            id: "cards",
+            type: "card_grid",
+            title: "Team",
+            titleField,
+            subtitleField: roles?.owner || roles?.subtitle || columns[1] || null,
+            progressField: null,
+          },
+          { id: "table", type: "table", title: sheetTitle, columns: columns.slice() },
+        ];
+      }
+      if (templateId === "status_tracker") {
+        if (!columns.length) return [];
+        const statsCols = [roles?.progress, roles?.status, roles?.owner, roles?.date]
+          .filter((c) => c && columns.includes(c));
+        columns.forEach((c) => { if (!statsCols.includes(c) && statsCols.length < 4) statsCols.push(c); });
+        return [
+          { id: "stats", type: "stats", title: "Summary", columns: statsCols.slice(0, 4) },
+          {
+            id: "cards",
+            type: "card_grid",
+            title: "Progress",
+            titleField,
+            subtitleField,
+            progressField,
+            sortCompletedFirst: true,
+          },
+          { id: "table", type: "table", title: sheetTitle, columns: columns.slice() },
+        ];
+      }
+      // summary_cards default
+      if (!columns.length) return [];
+      const statsCols = [roles?.progress, roles?.status, roles?.owner, roles?.date]
+        .filter((c) => c && columns.includes(c));
+      columns.forEach((c) => { if (!statsCols.includes(c) && statsCols.length < 4) statsCols.push(c); });
+      return [
+        { id: "stats", type: "stats", title: "Summary", columns: statsCols.slice(0, 4) },
+        {
+          id: "cards",
+          type: "card_grid",
+          title: "Cards",
+          titleField,
+          subtitleField,
+          progressField,
+          sortCompletedFirst: Boolean(progressField),
+        },
+        { id: "table", type: "table", title: sheetTitle, columns: columns.slice() },
+      ];
+    }
+
+    function applyLayoutTemplate(source, preview, templateId) {
+      const columns = preview.columns || [];
+      const roles = readColumnRolesFromMapper(
+        columns,
+        source.mapping?.column_roles || preview.column_roles || preview.suggested_mapping?.column_roles || {}
+      );
+      source.mapping = {
+        template: templateId,
+        column_roles: roles,
+        boards: buildBoardsForTemplate(templateId, columns, roles, preview),
+      };
+      renderMappingEditor(source, preview);
+    }
+
+    function applyGuidedFields(source, preview) {
+      const columns = preview.columns || [];
+      const roles = readColumnRolesFromMapper(columns, source.mapping?.column_roles || {});
+      const templateId = source.mapping?.template
+        || preview.suggested_template
+        || preview.suggested_mapping?.template
+        || "summary_cards";
+      const existing = Array.isArray(source.mapping?.boards) ? source.mapping.boards : [];
+
+      // Patch field roles onto existing boards — do NOT wipe extra boards the user added
+      if (existing.length) {
+        const titleField = roles.title || columns[0] || null;
+        const subtitleField = roles.subtitle || roles.owner || roles.status || (columns[1] || null);
+        const progressField = roles.progress || roles.status || null;
+        const isBug = templateId === "bug_index";
+        const nextBoards = existing.map((board) => {
+          const copy = { ...board };
+          if (copy.type === "card_grid") {
+            copy.titleField = titleField;
+            copy.subtitleField = subtitleField;
+            if (isBug) {
+              copy.progressField = null;
+              copy.metaFields = [roles.severity, roles.verdict, roles.status, roles.id].filter(Boolean);
+              copy.sortCompletedFirst = false;
+            } else if (copy.progressField !== null || progressField) {
+              copy.progressField = progressField;
+              if (progressField) copy.sortCompletedFirst = true;
+            }
+          } else if (copy.type === "stats") {
+            const preferred = isBug
+              ? [roles.severity, roles.verdict, roles.status]
+              : [roles.progress, roles.status, roles.owner, roles.date];
+            const statsCols = preferred.filter((c) => c && columns.includes(c));
+            columns.forEach((c) => {
+              if (!statsCols.includes(c) && statsCols.length < (isBug ? 3 : 4)) statsCols.push(c);
+            });
+            copy.columns = statsCols.slice(0, isBug ? 3 : 4);
+            if (isBug) copy.aggregate = "count";
+          } else if (copy.type === "table" && isBug) {
+            copy.emphasisColumns = [roles.severity, roles.verdict, roles.status].filter(Boolean);
+          }
+          return copy;
+        });
+        source.mapping = {
+          template: templateId,
+          column_roles: roles,
+          boards: nextBoards,
+        };
+      } else {
+        source.mapping = {
+          template: templateId,
+          column_roles: roles,
+          boards: buildBoardsForTemplate(templateId, columns, roles, preview),
+        };
+      }
+      renderMappingEditor(source, preview);
+    }
+
+    function colSelectOptions(columns, selected) {
+      return `<option value="">—</option>${columns.map((c) =>
+        `<option value="${esc(c)}" ${selected === c ? "selected" : ""}>${esc(c)}</option>`
+      ).join("")}`;
+    }
+
     function renderMappingEditor(source, preview) {
       const wrap = document.getElementById("ed-mapping");
       const mode = document.getElementById("ed-mode").value;
+      if (source.type === "website" || mode === "website") {
+        wrap.classList.add("hidden");
+        wrap.innerHTML = "";
+        return;
+      }
       if (mode === "scorecard") {
         wrap.classList.remove("hidden");
         wrap.innerHTML = `
@@ -1185,23 +2285,113 @@
         `;
         document.getElementById("ed-mode").onchange = () => {
           source.displayMode = document.getElementById("ed-mode").value;
+          if (source.displayMode === "generic" && preview && !(source.mapping?.boards?.length)) {
+            const cols = preview.columns || [];
+            const roleMap = preview.column_roles || preview.suggested_mapping?.column_roles || {};
+            let template = preview.suggested_template || preview.suggested_mapping?.template;
+            if (!template || preview.suggested_mapping?.preset) {
+              template = preview.type === "word_doc"
+                ? "document"
+                : (cols.length ? "status_tracker" : "summary_cards");
+            }
+            source.mapping = {
+              template,
+              column_roles: roleMap,
+              boards: buildBoardsForTemplate(template, cols, roleMap, preview),
+            };
+          }
           renderMappingEditor(source, preview || previewState || { columns: [] });
         };
         return;
       }
 
       const columns = preview.columns || [];
-      const boards = source.mapping?.boards || preview.suggested_mapping?.boards || [];
+      const roles = source.mapping?.column_roles
+        || preview.column_roles
+        || preview.suggested_mapping?.column_roles
+        || {};
+      const activeTemplate = source.mapping?.template
+        || preview.suggested_template
+        || preview.suggested_mapping?.template
+        || "summary_cards";
+      if (!source.mapping?.boards?.length && preview.suggested_mapping?.boards) {
+        source.mapping = {
+          ...(source.mapping || {}),
+          template: activeTemplate,
+          column_roles: roles,
+          boards: preview.suggested_mapping.boards,
+        };
+      }
+      const boards = source.mapping?.boards || [];
+      const templates = layoutTemplatesList(preview);
+      const isDoc = activeTemplate === "document" || preview.type === "word_doc";
+
       wrap.classList.remove("hidden");
       wrap.innerHTML = `
-        <h4>Board mapping</h4>
-        <p>Configure how source fields appear. Boards become tabs on the scoreboard.</p>
-        <div id="ed-boards">
-          ${boards.map((board, idx) => mappingBoardFields(board, idx, columns, preview)).join("")}
+        <h4>Layout designer</h4>
+        <p class="layout-designer-intro">
+          Auto-picked from this source’s columns. Switch a template or remap fields if the layout isn’t right.
+        </p>
+        <div class="layout-template-gallery" role="list">
+          ${templates.map((t) => `
+            <button type="button" class="layout-template-card ${t.id === activeTemplate ? "is-active" : ""}"
+              data-template="${esc(t.id)}" role="listitem">
+              <strong>${esc(t.label)}</strong>
+              <span>${esc(t.description || "")}</span>
+            </button>
+          `).join("")}
         </div>
-        <button type="button" id="ed-add-board">Add board</button>
+        ${isDoc ? `
+          <p class="layout-designer-note">Document layout uses text sections and tables from the file.</p>
+        ` : `
+          <div class="layout-guided-mapper">
+            <h5>Field mapping</h5>
+            <div class="layout-guided-grid">
+              <label>Title column
+                <select id="ld-title">${colSelectOptions(columns, roles.title)}</select>
+              </label>
+              <label>Subtitle column
+                <select id="ld-subtitle">${colSelectOptions(columns, roles.subtitle)}</select>
+              </label>
+              <label>Progress / status
+                <select id="ld-progress">${colSelectOptions(columns, roles.progress || roles.status)}</select>
+              </label>
+              <label>Owner / team
+                <select id="ld-owner">${colSelectOptions(columns, roles.owner)}</select>
+              </label>
+            </div>
+            <button type="button" id="ld-apply-fields" class="sources-action sources-primary">Apply field mapping</button>
+          </div>
+        `}
+        <details class="layout-advanced" open>
+          <summary>Advanced boards</summary>
+          <p>Boards become tabs on the scoreboard. Edit only if you need custom board types. Changes are kept when you Preview again; use Save boards here or Save at the top.</p>
+          <div id="ed-boards">
+            ${boards.map((board, idx) => mappingBoardFields(board, idx, columns, preview)).join("")}
+          </div>
+          <div class="layout-advanced-actions">
+            <button type="button" id="ed-add-board" class="sources-action">Add board</button>
+            <button type="button" id="ed-save-boards" class="sources-action sources-primary">Save boards</button>
+          </div>
+        </details>
       `;
-      document.getElementById("ed-add-board").addEventListener("click", () => {
+
+      wrap.querySelectorAll(".layout-template-card").forEach((btn) => {
+        btn.addEventListener("click", () => {
+          // Commit DOM edits before template rebuild replaces them
+          if (document.querySelector("#ed-mapping .mapping-board")) {
+            source.mapping = collectMappingFromEditor(source, preview);
+          }
+          applyLayoutTemplate(source, preview, btn.dataset.template);
+        });
+      });
+      document.getElementById("ld-apply-fields")?.addEventListener("click", () => {
+        if (document.querySelector("#ed-mapping .mapping-board")) {
+          source.mapping = collectMappingFromEditor(source, preview);
+        }
+        applyGuidedFields(source, preview);
+      });
+      document.getElementById("ed-add-board")?.addEventListener("click", () => {
         const next = collectMappingFromEditor(source, preview);
         next.boards = next.boards || [];
         next.boards.push({
@@ -1213,15 +2403,39 @@
         source.mapping = next;
         renderMappingEditor(source, preview);
       });
+      document.getElementById("ed-save-boards")?.addEventListener("click", () => {
+        source.mapping = collectMappingFromEditor(source, preview);
+        saveEditor(source);
+      });
       bindMappingRemove(source, preview);
+      bindMappingLiveSync(source, preview);
       document.getElementById("ed-mode").onchange = () => {
         source.displayMode = document.getElementById("ed-mode").value;
+        if (source.displayMode === "generic" && preview && !(source.mapping?.boards?.length)) {
+          const cols = preview.columns || [];
+          const roleMap = preview.column_roles || preview.suggested_mapping?.column_roles || {};
+          let template = preview.suggested_template || preview.suggested_mapping?.template;
+          if (!template || preview.suggested_mapping?.preset) {
+            template = preview.type === "word_doc"
+              ? "document"
+              : (cols.length ? "status_tracker" : "summary_cards");
+          }
+          source.mapping = {
+            template,
+            column_roles: roleMap,
+            boards: buildBoardsForTemplate(template, cols, roleMap, preview),
+          };
+        }
         renderMappingEditor(source, preview || previewState || { columns: [] });
       };
     }
 
     function mappingBoardFields(board, idx, columns, preview) {
       const selectedCols = new Set(board.columns || columns);
+      const selectedMeta = new Set(board.metaFields || []);
+      const type = board.type || "table";
+      const fields = BOARD_TYPE_FIELDS[type] || {};
+      const hide = (show) => (show ? "" : "hidden");
       return `
         <fieldset class="mapping-board" data-idx="${idx}">
           <legend>Board ${idx + 1}</legend>
@@ -1229,77 +2443,193 @@
           <label>Type
             <select class="mb-type">
               ${["stats", "card_grid", "table", "text_sections", "form_summary", "tables"].map((t) =>
-                `<option value="${t}" ${board.type === t ? "selected" : ""}>${t}</option>`
+                `<option value="${t}" ${type === t ? "selected" : ""}>${t}</option>`
               ).join("")}
             </select>
           </label>
-          <label class="mb-title-field-wrap">Title field
+          <p class="mb-type-hint">${esc(boardTypeHint(type))}</p>
+          <label class="mb-title-field-wrap ${hide(fields.title)}">Title field
             <select class="mb-title-field">
               <option value="">—</option>
               ${columns.map((c) => `<option value="${esc(c)}" ${board.titleField === c ? "selected" : ""}>${esc(c)}</option>`).join("")}
             </select>
           </label>
-          <label class="mb-progress-field-wrap">Progress field
+          <label class="mb-subtitle-field-wrap ${hide(fields.subtitle)}">Subtitle field
+            <select class="mb-subtitle-field">
+              <option value="">—</option>
+              ${columns.map((c) => `<option value="${esc(c)}" ${board.subtitleField === c ? "selected" : ""}>${esc(c)}</option>`).join("")}
+            </select>
+          </label>
+          <label class="mb-progress-field-wrap ${hide(fields.progress)}">Progress field
             <select class="mb-progress-field">
               <option value="">—</option>
               ${columns.map((c) => `<option value="${esc(c)}" ${board.progressField === c ? "selected" : ""}>${esc(c)}</option>`).join("")}
             </select>
           </label>
-          <label class="mb-cols-wrap">Columns
+          <label class="mb-meta-wrap ${hide(fields.meta)}">Card badges (meta)
+            <select class="mb-meta" multiple size="${Math.min(5, Math.max(3, columns.length || 3))}">
+              ${columns.map((c) => `<option value="${esc(c)}" ${selectedMeta.has(c) ? "selected" : ""}>${esc(c)}</option>`).join("")}
+            </select>
+          </label>
+          <label class="mb-cols-wrap ${hide(fields.columns)}">Columns
             <select class="mb-columns" multiple size="${Math.min(6, Math.max(3, columns.length || 3))}">
               ${columns.map((c) => `<option value="${esc(c)}" ${selectedCols.has(c) ? "selected" : ""}>${esc(c)}</option>`).join("")}
             </select>
           </label>
-          ${(preview.tables || []).length ? `
-            <label>Doc table index
-              <input class="mb-table-index" type="number" min="0" value="${board.tableIndex ?? 0}">
-            </label>
-          ` : ""}
+          <label class="mb-table-index-wrap ${hide(fields.tableIndex && (preview.tables || []).length)}">Doc table index
+            <input class="mb-table-index" type="number" min="0" value="${board.tableIndex ?? 0}">
+          </label>
           <input type="hidden" class="mb-id" value="${esc(board.id || `board-${idx}`)}">
+          <input type="hidden" class="mb-sort-completed" value="${board.sortCompletedFirst ? "1" : "0"}">
+          <input type="hidden" class="mb-emphasis" value="${esc((board.emphasisColumns || []).join("||"))}">
           <button type="button" class="mb-remove">Remove</button>
         </fieldset>
       `;
     }
 
+    function boardTypeHint(type) {
+      if (type === "card_grid") {
+        return "Cards use title / subtitle / progress / badge fields — not the Columns list.";
+      }
+      if (type === "stats") return "Columns become summary tiles (counts or averages).";
+      if (type === "table") return "Columns control which sheet fields appear in the table.";
+      if (type === "text_sections") return "Renders document sections — no column mapping.";
+      if (type === "form_summary") return "Shows response count plus a preview table.";
+      if (type === "tables") return "Picks an embedded document table by index.";
+      return "";
+    }
+
+    function updateBoardFieldVisibility(fieldset) {
+      const type = (fieldset.querySelector(".mb-type")?.value || "table").trim() || "table";
+      const fields = BOARD_TYPE_FIELDS[type] || {};
+      const toggle = (sel, show) => {
+        const el = fieldset.querySelector(sel);
+        if (el) el.classList.toggle("hidden", !show);
+      };
+      toggle(".mb-title-field-wrap", !!fields.title);
+      toggle(".mb-subtitle-field-wrap", !!fields.subtitle);
+      toggle(".mb-progress-field-wrap", !!fields.progress);
+      toggle(".mb-meta-wrap", !!fields.meta);
+      toggle(".mb-cols-wrap", !!fields.columns);
+      toggle(".mb-table-index-wrap", !!fields.tableIndex);
+      const hint = fieldset.querySelector(".mb-type-hint");
+      if (hint) hint.textContent = boardTypeHint(type);
+    }
+
     function collectMappingFromEditor(source, preview) {
       const mode = document.getElementById("ed-mode").value;
+      if (source?.type === "website" || mode === "website") {
+        return { boards: [] };
+      }
       if (mode === "scorecard") {
         return { preset: "intrakore_scorecard" };
       }
+      const columns = preview?.columns || [];
+      const roles = readColumnRolesFromMapper(
+        columns,
+        source?.mapping?.column_roles || preview?.column_roles || {}
+      );
+      const template = source?.mapping?.template
+        || preview?.suggested_template
+        || preview?.suggested_mapping?.template
+        || "summary_cards";
       const boards = [];
-      document.querySelectorAll(".mapping-board").forEach((fs) => {
-        const type = fs.querySelector(".mb-type").value;
+      const usedIds = new Set();
+      document.querySelectorAll(".mapping-board").forEach((fs, idx) => {
+        const type = (fs.querySelector(".mb-type")?.value || "table").trim() || "table";
+        const fields = BOARD_TYPE_FIELDS[type] || {};
         const columnsSelect = fs.querySelector(".mb-columns");
-        const columns = columnsSelect
+        const metaSelect = fs.querySelector(".mb-meta");
+        const boardCols = (fields.columns && columnsSelect)
           ? Array.from(columnsSelect.selectedOptions).map((o) => o.value)
           : [];
-        boards.push({
-          id: fs.querySelector(".mb-id").value,
+        const metaFields = (fields.meta && metaSelect)
+          ? Array.from(metaSelect.selectedOptions).map((o) => o.value)
+          : [];
+        let id = (fs.querySelector(".mb-id")?.value || "").trim() || `board-${idx}`;
+        if (usedIds.has(id)) {
+          let n = 2;
+          while (usedIds.has(`${id}-${n}`)) n += 1;
+          id = `${id}-${n}`;
+        }
+        usedIds.add(id);
+        const board = {
+          id,
           type,
-          title: fs.querySelector(".mb-title").value.trim() || type,
-          titleField: fs.querySelector(".mb-title-field")?.value || undefined,
-          progressField: fs.querySelector(".mb-progress-field")?.value || undefined,
-          columns,
+          title: fs.querySelector(".mb-title")?.value.trim() || type,
           tableIndex: Number(fs.querySelector(".mb-table-index")?.value || 0),
-        });
+        };
+        if (fields.title) board.titleField = fs.querySelector(".mb-title-field")?.value || undefined;
+        if (fields.subtitle) board.subtitleField = fs.querySelector(".mb-subtitle-field")?.value || undefined;
+        if (fields.progress) {
+          const pf = fs.querySelector(".mb-progress-field")?.value;
+          board.progressField = pf || undefined;
+        }
+        if (fields.meta) board.metaFields = metaFields;
+        if (fields.columns) board.columns = boardCols;
+        const emphasisRaw = fs.querySelector(".mb-emphasis")?.value || "";
+        if (emphasisRaw) {
+          board.emphasisColumns = emphasisRaw.split("||").filter(Boolean);
+        }
+        if (fs.querySelector(".mb-sort-completed")?.value === "1") {
+          board.sortCompletedFirst = true;
+        }
+        boards.push(board);
       });
-      return { boards };
+      return { template, column_roles: roles, boards };
     }
 
     function bindMappingRemove(source, preview) {
       document.querySelectorAll(".mb-remove").forEach((btn) => {
         btn.addEventListener("click", () => {
           btn.closest(".mapping-board").remove();
+          source.mapping = collectMappingFromEditor(source, preview);
         });
       });
     }
 
+    function bindMappingLiveSync(source, preview) {
+      document.querySelectorAll("#ed-mapping .mapping-board input, #ed-mapping .mapping-board select").forEach((el) => {
+        el.addEventListener("change", () => {
+          if (el.classList.contains("mb-type")) {
+            updateBoardFieldVisibility(el.closest(".mapping-board"));
+          }
+          source.mapping = collectMappingFromEditor(source, preview);
+        });
+      });
+      document.querySelectorAll("#ed-mapping .mapping-board").forEach((fs) => updateBoardFieldVisibility(fs));
+    }
+
     async function saveEditor(source) {
       readEditorFields(source);
-      if (previewState || document.getElementById("ed-mapping")?.childElementCount) {
+      if (
+        (source.type === "google_sheet" || source.type === "google_forms")
+        && !source.connection?.tab
+      ) {
+        const select = document.getElementById("ed-tab");
+        const namedTabs = [...(select?.options || [])].filter((o) => o.value);
+        if (namedTabs.length > 1) {
+          alert("Pick which sheet tab to use (e.g. BugIndex). Auto can load the wrong tab when the workbook also has a Scorecard.");
+          return;
+        }
+      }
+      if (source.type === "website") {
+        source.displayMode = "website";
+        source.mapping = { boards: [] };
+        if (!source.connection?.url) {
+          alert("Provide a website URL.");
+          return;
+        }
+      } else if (previewState || document.getElementById("ed-mapping")?.childElementCount) {
         source.mapping = collectMappingFromEditor(source, previewState || {});
       } else if (source.displayMode === "scorecard") {
         source.mapping = { preset: "intrakore_scorecard" };
+      }
+
+      // Generic mode must not keep a stale Intrakore scorecard preset
+      if (source.displayMode === "generic" && source.mapping?.preset === "intrakore_scorecard") {
+        source.mapping = { boards: source.mapping.boards || [] };
+        delete source.mapping.preset;
       }
 
       const fileInput = document.getElementById("ed-file");
@@ -1321,7 +2651,8 @@
       document.getElementById("source-editor").classList.add("hidden");
       renderSourcesList();
       closeSourcesModal();
-      await loadActiveSource(true);
+      showLoading("Activating source…", source.name);
+      await loadActiveSource(true, { fromActivate: true });
     }
 
     document.getElementById("sources-btn").addEventListener("click", openSourcesModal);
@@ -1406,6 +2737,10 @@
         closeSourcesModal();
         return;
       }
+      if (!document.getElementById("bug-modal").classList.contains("hidden")) {
+        closeBugModal();
+        return;
+      }
       closeModuleModal();
     });
 
@@ -1417,6 +2752,27 @@
     document.getElementById("module-filter").addEventListener("change", (event) => {
       moduleFilter = event.target.value;
       if (scoreboardData) renderModules(scoreboardData);
+    });
+
+    document.getElementById("bug-status-filter").addEventListener("change", (event) => {
+      bugStatusFilter = event.target.value;
+      refreshBugsUi();
+    });
+    document.getElementById("bug-severity-filter").addEventListener("change", (event) => {
+      bugSeverityFilter = event.target.value;
+      refreshBugsUi();
+    });
+    document.getElementById("bug-module-filter").addEventListener("change", (event) => {
+      bugModuleFilter = event.target.value;
+      refreshBugsUi();
+    });
+    document.getElementById("bug-search").addEventListener("input", (event) => {
+      bugSearch = event.target.value || "";
+      refreshBugsUi();
+    });
+    document.getElementById("bug-modal-close").addEventListener("click", closeBugModal);
+    document.getElementById("bug-modal").addEventListener("click", (event) => {
+      if (event.target.id === "bug-modal") closeBugModal();
     });
 
     const SCALE_KEY = "scoreboard-page-scale";
@@ -1507,8 +2863,10 @@
     }
 
     function buildSlideQueue(config) {
-      const source = activeSource();
-      if (source.displayMode === "generic" && genericData?.boards?.length) {
+      if (displayMode === "bugs" && bugsData) {
+        return [{ type: "bugs", label: "Bug Index", scroll: true }];
+      }
+      if (displayMode === "generic" && genericData?.boards?.length) {
         const ids = config.genericBoardIds?.length
           ? config.genericBoardIds
           : genericData.boards.map((b) => b.id);
@@ -1543,6 +2901,10 @@
         return document.querySelector("#panel-phases .table-wrap")
           || document.getElementById("panel-phases");
       }
+      if (slide.type === "bugs") {
+        return document.getElementById("bugs-card-grid")
+          || document.getElementById("panel-bugs");
+      }
       if (slide.type === "generic") {
         return document.querySelector("#panel-generic .generic-board-body")
           || document.getElementById("panel-generic");
@@ -1566,6 +2928,9 @@
         activeGenericBoardId = slide.boardId;
         if (genericData) renderGeneric(genericData);
         document.getElementById("panel-generic").classList.add("active");
+      } else if (slide.type === "bugs") {
+        document.getElementById("panel-bugs").classList.add("active");
+        if (bugsData) renderBugs(bugsData);
       } else {
         switchTab(slide.type);
         if (slide.type === "modules" && scoreboardData) {
@@ -1679,7 +3044,13 @@
     loadSlideshowConfig();
     loadSourcesConfig();
     loadActiveSource(true);
-    setInterval(() => loadActiveSource(true), 30000);
+    setInterval(() => {
+      const source = activeSource();
+      if (source.type === "website" || source.displayMode === "website") return;
+      if (source.autoSync === false) return;
+      // Quiet background sync for Scorecard + Bug analysis (and other sheet sources)
+      loadActiveSource(true);
+    }, 30000);
   </script>
 </body>
 </html>

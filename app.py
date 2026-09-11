@@ -19,6 +19,7 @@ from sources.fetch import (
     sheet_view_url,
 )
 from sources.normalize import normalize_generic, suggest_mapping
+from sources.parse_bugs import parse_bugs
 from sources.parse_docx import parse_docx
 from sources.parse_generic_sheet import list_sheet_names, parse_generic_sheet
 from sources.parse_ms_forms import fetch_ms_form_responses, ms_forms_configured
@@ -34,6 +35,17 @@ GOOGLE_SHEET_URL = os.environ.get(
 GOOGLE_EXPORT_URL = os.environ.get(
     "GOOGLE_EXPORT_URL",
     f"https://docs.google.com/spreadsheets/d/{GOOGLE_SHEET_ID}/export?format=xlsx",
+)
+
+# Intrakore Lifecycle Snag List (BugIndex + pivot)
+BUGS_SHEET_ID = os.environ.get(
+    "BUGS_SHEET_ID",
+    "1E7ucvpw7dOismcoBGWm3wqp_oIo_QBKG",
+)
+BUGS_SHEET_TAB = os.environ.get("BUGS_SHEET_TAB", "BugIndex")
+BUGS_SHEET_URL = os.environ.get(
+    "BUGS_SHEET_URL",
+    f"https://docs.google.com/spreadsheets/d/{BUGS_SHEET_ID}/edit?gid=1611749406#gid=1611749406",
 )
 
 DEFAULT_XLSX = Path.home() / "Downloads" / "Copy of Project Plan.xlsx"
@@ -125,6 +137,56 @@ def _load_scorecard(
     return _cache_set(cache_key, data)
 
 
+def _load_bugs_sheet(
+    *,
+    sheet_id: str,
+    tab: str,
+    force_refresh: bool = False,
+    source_label: str | None = None,
+) -> dict:
+    sid = (sheet_id or "").strip()
+    tab_name = (tab or "").strip() or BUGS_SHEET_TAB
+    cache_key = f"bugs:{sid}:{tab_name}"
+    cached = _cache_get(cache_key, force_refresh=force_refresh)
+    if cached:
+        return cached
+
+    try:
+        content = _fetch_sheet_bytes(sid)
+    except RuntimeError as exc:
+        raise RuntimeError(
+            "Could not download Bugs sheet. Make sure it is shared as "
+            f"'Anyone with the link can view'. ({exc})"
+        ) from exc
+
+    data = parse_bugs(
+        io.BytesIO(content),
+        tab=tab_name,
+        source_label=source_label or "Bug analysis",
+    )
+    data["source_url"] = BUGS_SHEET_URL if sid == BUGS_SHEET_ID else sheet_view_url(sid)
+    data["sheet_id"] = sid
+    data["mode"] = "bugs"
+    data["template"] = "bug_index"
+    return _cache_set(cache_key, data)
+
+
+def _load_bugs(*, force_refresh: bool = False) -> dict:
+    return _load_bugs_sheet(
+        sheet_id=BUGS_SHEET_ID,
+        tab=BUGS_SHEET_TAB,
+        force_refresh=force_refresh,
+        source_label="Intrakore Lifecycle Snag List",
+    )
+
+
+def _is_bug_index_request(mapping: dict | None, tab: str | None) -> bool:
+    mapping = mapping or {}
+    if (mapping.get("template") or "").strip() == "bug_index":
+        return True
+    return (tab or "").strip().lower() == "bugindex"
+
+
 def _load_generic_sheet(
     *,
     sheet_id: str,
@@ -158,53 +220,90 @@ def _load_generic_sheet(
     return result
 
 
+def _with_layout_hints(preview: dict, suggested: dict) -> dict:
+    """Attach top-level template / role hints for the Sources layout designer."""
+    preview["suggested_mapping"] = suggested
+    if suggested.get("preset"):
+        preview["suggested_template"] = None
+        preview["column_roles"] = {}
+    else:
+        preview["suggested_template"] = suggested.get("template")
+        preview["column_roles"] = suggested.get("column_roles") or {}
+        preview["layout_templates"] = suggested.get("templates") or []
+    return preview
+
+
 def _preview_sheet(sheet_id: str, tab: str | None = None) -> dict:
     content = _fetch_sheet_bytes(sheet_id)
     names = list_sheet_names(io.BytesIO(content))
+    selected = (tab or "").strip() or None
+    # Auto (no tab): if Scorecard exists, preview that tab and suggest scorecard.
+    # Explicit non-Scorecard tab (e.g. BugIndex) must stay generic.
+    if selected:
+        parse_tab = selected
+        suggest_scorecard = selected == "Scorecard"
+    elif "Scorecard" in names:
+        parse_tab = "Scorecard"
+        suggest_scorecard = True
+    else:
+        parse_tab = None
+        suggest_scorecard = False
+
     parsed = parse_generic_sheet(
         io.BytesIO(content),
-        tab=tab,
+        tab=parse_tab,
         source_label="Google Sheets (live)",
     )
-    return {
-        "type": "google_sheet",
-        "sheet_id": sheet_id,
-        "sheet_names": names,
-        "has_scorecard_tab": "Scorecard" in names,
-        "columns": parsed.get("columns") or [],
-        "row_count": len(parsed.get("rows") or []),
-        "sample_rows": (parsed.get("rows") or [])[:5],
-        "suggested_mapping": suggest_mapping(parsed, source_type="google_sheet"),
-        "suggested_display_mode": (
-            "scorecard" if "Scorecard" in names else "generic"
-        ),
-    }
+    parsed["has_scorecard_tab"] = "Scorecard" in names
+    suggested = suggest_mapping(
+        parsed,
+        source_type="google_sheet",
+        force_generic=not suggest_scorecard,
+    )
+    return _with_layout_hints(
+        {
+            "type": "google_sheet",
+            "sheet_id": sheet_id,
+            "sheet_names": names,
+            "source_sheet": parsed.get("source_sheet"),
+            "has_scorecard_tab": "Scorecard" in names,
+            "columns": parsed.get("columns") or [],
+            "row_count": len(parsed.get("rows") or []),
+            "sample_rows": (parsed.get("rows") or [])[:5],
+            "suggested_display_mode": "scorecard" if suggest_scorecard else "generic",
+        },
+        suggested,
+    )
 
 
 def _preview_doc(url: str) -> dict:
     fetch_url = resolve_docx_fetch_url(url)
     content = fetch_bytes(fetch_url)
     parsed = parse_docx(content, source_label="Document (live)")
-    return {
-        "type": "word_doc",
-        "section_count": len(parsed.get("sections") or []),
-        "table_count": len(parsed.get("tables") or []),
-        "sections": [
-            {"heading": s.get("heading"), "paragraph_count": len(s.get("paragraphs") or [])}
-            for s in (parsed.get("sections") or [])[:20]
-        ],
-        "tables": [
-            {
-                "index": t.get("index"),
-                "title": t.get("title"),
-                "columns": t.get("columns"),
-                "row_count": len(t.get("rows") or []),
-            }
-            for t in (parsed.get("tables") or [])
-        ],
-        "suggested_mapping": suggest_mapping(parsed, source_type="word_doc"),
-        "suggested_display_mode": "generic",
-    }
+    suggested = suggest_mapping(parsed, source_type="word_doc")
+    return _with_layout_hints(
+        {
+            "type": "word_doc",
+            "document_title": parsed.get("document_title"),
+            "section_count": len(parsed.get("sections") or []),
+            "table_count": len(parsed.get("tables") or []),
+            "sections": [
+                {"heading": s.get("heading"), "paragraph_count": len(s.get("paragraphs") or [])}
+                for s in (parsed.get("sections") or [])[:20]
+            ],
+            "tables": [
+                {
+                    "index": t.get("index"),
+                    "title": t.get("title"),
+                    "columns": t.get("columns"),
+                    "row_count": len(t.get("rows") or []),
+                }
+                for t in (parsed.get("tables") or [])
+            ],
+            "suggested_display_mode": "generic",
+        },
+        suggested,
+    )
 
 
 def _fetch_source_payload(body: dict, *, force_refresh: bool = False) -> dict:
@@ -227,6 +326,13 @@ def _fetch_source_payload(body: dict, *, force_refresh: bool = False) -> dict:
             )
             data["mode"] = "scorecard"
             return data
+        if _is_bug_index_request(mapping, tab):
+            return _load_bugs_sheet(
+                sheet_id=sheet_id,
+                tab=tab or BUGS_SHEET_TAB,
+                force_refresh=force_refresh,
+                source_label="Google Sheets (live)",
+            )
         return _load_generic_sheet(
             sheet_id=sheet_id,
             tab=tab,
@@ -247,6 +353,8 @@ def _fetch_source_payload(body: dict, *, force_refresh: bool = False) -> dict:
         fetch_url = resolve_docx_fetch_url(url)
         content = fetch_bytes(fetch_url)
         raw = parse_docx(content, source_label="Document (live)")
+        if raw.get("document_title"):
+            raw["source_file"] = raw["document_title"]
         raw["source_url"] = url
         stored = _cache_set(cache_key, {"_raw": raw})
         result = normalize_generic(raw, mapping, source_type=source_type)
@@ -303,6 +411,16 @@ def scoreboard_api():
         return jsonify({"error": f"Failed to read spreadsheet: {exc}"}), 500
 
 
+@app.get("/api/bugs")
+def bugs_api():
+    """BugIndex rows + pivot-style severity/status summary."""
+    try:
+        force_refresh = request.args.get("refresh", "").lower() in {"1", "true", "yes"}
+        return jsonify(_load_bugs(force_refresh=force_refresh))
+    except Exception as exc:  # noqa: BLE001
+        return jsonify({"error": f"Failed to read bugs sheet: {exc}"}), 500
+
+
 @app.get("/api/source/preview")
 def source_preview():
     try:
@@ -316,13 +434,14 @@ def source_preview():
                 preview["type"] = "google_forms"
                 preview["suggested_display_mode"] = "generic"
                 parsed_like = {
-                    "kind": "table",
+                    "kind": "form",
                     "columns": preview["columns"],
                     "rows": preview.get("sample_rows") or [],
                     "has_scorecard_tab": False,
                 }
-                preview["suggested_mapping"] = suggest_mapping(
-                    parsed_like, source_type="google_forms"
+                _with_layout_hints(
+                    preview,
+                    suggest_mapping(parsed_like, source_type="google_forms"),
                 )
             return jsonify(preview)
 
@@ -333,35 +452,40 @@ def source_preview():
         if source_type == "microsoft_forms":
             form_id = (request.args.get("formId") or request.args.get("urlOrId") or "").strip()
             if not ms_forms_configured():
+                suggested = suggest_mapping(
+                    {"kind": "form", "columns": [], "rows": []},
+                    source_type="microsoft_forms",
+                )
                 return jsonify(
-                    {
-                        "type": "microsoft_forms",
-                        "ms_forms_configured": False,
-                        "error": (
-                            "Microsoft Forms credentials are not configured. "
-                            "Set MS_TENANT_ID, MS_CLIENT_ID, and MS_CLIENT_SECRET."
-                        ),
-                        "suggested_display_mode": "generic",
-                        "suggested_mapping": {
-                            "boards": [
-                                {"id": "form-summary", "type": "form_summary", "title": "Form responses"}
-                            ]
+                    _with_layout_hints(
+                        {
+                            "type": "microsoft_forms",
+                            "ms_forms_configured": False,
+                            "error": (
+                                "Microsoft Forms credentials are not configured. "
+                                "Set MS_TENANT_ID, MS_CLIENT_ID, and MS_CLIENT_SECRET."
+                            ),
+                            "suggested_display_mode": "generic",
                         },
-                    }
+                        suggested,
+                    )
                 )
             raw = fetch_ms_form_responses(form_id)
+            suggested = suggest_mapping(raw, source_type="microsoft_forms")
             return jsonify(
-                {
-                    "type": "microsoft_forms",
-                    "ms_forms_configured": True,
-                    "form_id": form_id,
-                    "columns": raw.get("columns") or [],
-                    "row_count": len(raw.get("rows") or []),
-                    "sample_rows": (raw.get("rows") or [])[:5],
-                    "response_count": raw.get("response_count", 0),
-                    "suggested_mapping": suggest_mapping(raw, source_type="microsoft_forms"),
-                    "suggested_display_mode": "generic",
-                }
+                _with_layout_hints(
+                    {
+                        "type": "microsoft_forms",
+                        "ms_forms_configured": True,
+                        "form_id": form_id,
+                        "columns": raw.get("columns") or [],
+                        "row_count": len(raw.get("rows") or []),
+                        "sample_rows": (raw.get("rows") or [])[:5],
+                        "response_count": raw.get("response_count", 0),
+                        "suggested_display_mode": "generic",
+                    },
+                    suggested,
+                )
             )
 
         return jsonify({"error": f"Unsupported type: {source_type}"}), 400
@@ -406,30 +530,34 @@ def source_upload():
         raw = parse_docx(content, source_label=upload.filename)
         preview_only = request.form.get("preview", "").lower() in {"1", "true", "yes"}
         if preview_only:
+            suggested = suggest_mapping(raw, source_type="word_doc")
             return jsonify(
-                {
-                    "type": "word_doc",
-                    "section_count": len(raw.get("sections") or []),
-                    "table_count": len(raw.get("tables") or []),
-                    "sections": [
-                        {
-                            "heading": s.get("heading"),
-                            "paragraph_count": len(s.get("paragraphs") or []),
-                        }
-                        for s in (raw.get("sections") or [])[:20]
-                    ],
-                    "tables": [
-                        {
-                            "index": t.get("index"),
-                            "title": t.get("title"),
-                            "columns": t.get("columns"),
-                            "row_count": len(t.get("rows") or []),
-                        }
-                        for t in (raw.get("tables") or [])
-                    ],
-                    "suggested_mapping": suggest_mapping(raw, source_type="word_doc"),
-                    "suggested_display_mode": "generic",
-                }
+                _with_layout_hints(
+                    {
+                        "type": "word_doc",
+                        "document_title": raw.get("document_title"),
+                        "section_count": len(raw.get("sections") or []),
+                        "table_count": len(raw.get("tables") or []),
+                        "sections": [
+                            {
+                                "heading": s.get("heading"),
+                                "paragraph_count": len(s.get("paragraphs") or []),
+                            }
+                            for s in (raw.get("sections") or [])[:20]
+                        ],
+                        "tables": [
+                            {
+                                "index": t.get("index"),
+                                "title": t.get("title"),
+                                "columns": t.get("columns"),
+                                "row_count": len(t.get("rows") or []),
+                            }
+                            for t in (raw.get("tables") or [])
+                        ],
+                        "suggested_display_mode": "generic",
+                    },
+                    suggested,
+                )
             )
 
         result = normalize_generic(raw, mapping, source_type="word_doc")

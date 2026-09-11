@@ -68,6 +68,12 @@ def parse_docx(
     else:
         document = Document(source)
 
+    document_title = ""
+    try:
+        document_title = (document.core_properties.title or "").strip()
+    except Exception:  # noqa: BLE001
+        document_title = ""
+
     sections: list[dict[str, Any]] = []
     current: dict[str, Any] | None = None
     tables: list[dict[str, Any]] = []
@@ -94,9 +100,20 @@ def parse_docx(
             tables.append(_table_to_dict(table, table_index))
             table_index += 1
 
+    label = source_label or document_title or "Document"
+    if not document_title:
+        for section in sections:
+            heading = (section.get("heading") or "").strip()
+            if section.get("level") == 1 and heading and heading != "Introduction":
+                document_title = heading
+                break
+        if document_title and (not source_label or source_label == "Document (live)"):
+            label = document_title
+
     return {
         "kind": "document",
-        "source_file": source_label or "Document",
+        "source_file": label,
+        "document_title": document_title or None,
         "sections": sections,
         "tables": tables,
     }
