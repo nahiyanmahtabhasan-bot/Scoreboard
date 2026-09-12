@@ -11,11 +11,12 @@ Live web scoreboard that reads module progress from a **Google Sheet** (Scorecar
 | **GitHub repo** | https://github.com/nahiyanmahtabhasan-bot/Scoreboard |
 | **Local path** | `C:\Users\hasan\intrakore-scoreboard` |
 | **Branch** | `main` (tracks `origin/main`) |
-| **Latest committed / pushed** | `d0f059d` — Add multi-source inputs and fix Phase Breakdown from Scorecard matrices |
-| **Working tree** | **Uncommitted** website / hero title / loading-overlay polish (see below) — not pushed |
-| **Production URL** | **https://intrakore-scoreboard.vercel.app** |
-| **Vercel project** | `intrakore/intrakore-scoreboard` (team: intrakore) |
-| **Vercel dashboard** | https://vercel.com/intrakore/intrakore-scoreboard |
+| **Latest committed / pushed** | `6bb5b34` — Add website embeds, Bug analysis source, and no-AI layout designer |
+| **Working tree** | Clean for app code; local `.vercel` now linked to Fuel Ledger (free). `.gitignore` may show local Vercel link noise |
+| **Production URL (live / free)** | **https://scoreboard-five-ashen.vercel.app** |
+| **Vercel project (live)** | `fuel-ledger/scoreboard` (team: Fuel Ledger) |
+| **Vercel dashboard (live)** | https://vercel.com/fuel-ledger/scoreboard |
+| **Old URL (paused)** | https://intrakore-scoreboard.vercel.app — `intrakore` team `DEPLOYMENT_DISABLED` / 402; do not use until billing unpaused |
 
 ---
 
@@ -51,8 +52,8 @@ M sources/parse_generic_sheet.py
 1. **Custom website source** (`type: website`) — paste any URL; displayed as full-bleed iframe. Google Docs/Sheets/Slides/Forms URLs auto-converted to `/preview` or `/embed`. Client-side only (no server fetch / SSRF). Fallback “Open in a new tab” if host blocks embedding.
 2. **Hero title updates** — `#hero-eyebrow` / `#hero-title` follow active source name. Intrakore scorecard keeps “Live Scoreboard” / “Intrakore · Project Plan”.
 3. **Google Doc titles** — `parse_docx` reads `core_properties.title`, else first real H1; fills placeholder names (“New source” / “Untitled”); richer `doc-view` layout for `text_sections`.
-4. **Loading overlay** — full-screen popup on **Activate** / save-new-source only (`opts.fromActivate`). **Not** shown on 30s auto-sync or Refresh (refresh icon still spins).
-5. Website sources skip the 30s auto-reload of the iframe.
+4. **Loading overlay** — full-screen popup on **Activate** / save-new-source only (`opts.fromActivate`). **Not** shown on 2‑min auto-sync or Refresh (refresh icon still spins).
+5. Website sources skip the 2‑min auto-reload of the iframe.
 6. **No-AI layout designer** — `sources/layouts.py` infers column roles + picks a template on Preview; Sources editor template gallery + guided field mapper; progress cards sort completed-first.
 7. **Source / board mix fix** — Preview no longer forces Scorecard mode just because the workbook *contains* a Scorecard tab; only the selected tab named `Scorecard` gets that preset. Invalid sheet tabs error instead of silently loading the first tab. Activating a source resets board selection (prefers the table named after the sheet). Stale fetch responses ignored. Failed loads clear previous source UI. Hero shows **Rows** for sheets (not Sections: 0). Saving a multi-tab sheet requires an explicit tab pick.
 8. **Advanced boards Save** — Preview no longer wipes custom boards when re-previewing; board field changes live-sync into mapping; **Save boards** button in Advanced boards (plus sticky top Preview/Save) so you don’t lose edits scrolling up.
@@ -61,8 +62,8 @@ M sources/parse_generic_sheet.py
 11. **Type-aware board fields** — Advanced boards hide irrelevant controls: **Columns** only for `stats` / `table` / `form_summary`; card grids show title / subtitle / progress / **card badges (meta)** instead. Hint text explains which fields each type uses. (Previously selecting Columns on a Progress/`card_grid` board did nothing — only the title field rendered.)
 12. **Non-progress activation** — default board pick prefers the data table for `bug_index` / `simple_table` / non-`status_tracker` templates; bug-sheet hero surfaces severity/status tiles from the Breakdown board.
 13. **Meta chip text** — finding/status badges show **value only** (e.g. `Bug` / `No Bug` / `Critical`), not `BUG/ NO BUG Bug`; column name stays on hover tooltip.
-14. **Bugs as own source** — dedicated **Bug Index** / **Bug analysis** source (snag-list sheet / `BugIndex` tab) shows Unopened / Open / Actioned / Closed summary (blank STATUS → Unopened) and filterable detail cards. Scorecard no longer has a Bugs tab; activate **Bug analysis** from Sources. Hero stats use the same gradient cards as Project Plan; counts update with Status / Severity / Module / Search filters. Severity×module×status pivot table removed from the UI.
-15. **Bug analysis hero polish** — removed bottom pivot table; hero Unopened/Open/Actioned/Closed tiles match Project Plan `stat-card` gradients (`stat-primary` / `stat-ongoing` / `stat-complete`); filter changes recompute hero counts from the filtered set.
+14. **Bugs as Scorecard tab** — **Bugs** sits next to Phase Breakdown on the Intrakore Scorecard (not a separate source). Loads via `/api/bugs` alongside the scorecard; opening the tab swaps hero stats to Unopened / Open / Actioned / Closed (filter-aware). Old seeded **Bug analysis** source is removed from config on load. Pivot table removed earlier.
+15. **Bug analysis hero polish** — hero Unopened/Open/Actioned/Closed tiles match Project Plan `stat-card` gradients; filter changes recompute hero counts from the filtered set.
 
 ### Bug sheet source (example)
 | Item | Value |
@@ -71,8 +72,8 @@ M sources/parse_generic_sheet.py
 | **Sheet ID** | `1E7ucvpw7dOismcoBGWm3wqp_oIo_QBKG` |
 | **Tab** | `BugIndex` |
 | **Key columns** | ID, Severity, Finding, Modules, Bug/ No Bug, STATUS |
-| **Scoreboard Bugs view** | Activate the **Bug Index** source (not a Scorecard tab); fetch uses `bug_index` / BugIndex → `mode: bugs` |
-| **How to wire as a source** | Sources → Add/Edit → paste URL → pick **BugIndex** tab → Preview → confirm **Bug / issue index** template → Save |
+| **Scoreboard Bugs view** | Scorecard → **Bugs** tab (loads `/api/bugs` from BugIndex); not a separate source |
+| **How to wire** | Built into Intrakore Scorecard; override with env `BUGS_SHEET_ID` / `BUGS_SHEET_TAB` |
 
 ### Why “3 columns” only showed the module name
 `card_grid` (Progress / Findings cards) never used the Columns multi-select — only `titleField` / `subtitleField` / `progressField`. BugIndex was mis-detected as `status_tracker`, so cards titled on **Modules** and treated `#` as progress. Fixed by type-aware field visibility + `bug_index` layout.
@@ -121,7 +122,7 @@ Only: `docs.google.com`, `drive.google.com`, `www.googleapis.com`, `spreadsheets
 - `flask`, `openpyxl`, **`python-docx>=1.1`**
 
 ### Default config seed
-Active source = Intrakore Scorecard (`displayMode: scorecard`, mapping preset `intrakore_scorecard`). Also seeds **Bug analysis** (`tab: BugIndex`, `mapping.template: bug_index`, `autoSync: true`) pointing at the snag-list sheet (`…/1E7ucvpw7dOismcoBGWm3wqp_oIo_QBKG/edit?gid=1611749406`). Auto-refresh every 30s applies to Scorecard and Bug analysis when active (not website embeds).
+Active source = Intrakore Scorecard (`displayMode: scorecard`, mapping preset `intrakore_scorecard`). **Bugs** is a scorecard tab (next to Phase Breakdown) fed by the snag-list sheet (`…/1E7ucvpw7dOismcoBGWm3wqp_oIo_QBKG`, tab `BugIndex`) via `/api/bugs`. Auto-refresh every **2 minutes** (not website embeds).
 
 ---
 
@@ -129,7 +130,7 @@ Active source = Intrakore Scorecard (`displayMode: scorecard`, mapping preset `i
 1. Module Progress — P1/P2; completed pinned on top
 2. Completed styling — green outline + Complete badge
 3. Sort / Filter
-4. Refresh + auto-refresh every 30s
+4. Refresh + auto-refresh every 2 minutes
 5. Module click popup — 10 delivery stages
 6. Team Workload — **tasks completed** (not hours) + %
 7. Phase Breakdown (fixed from Scorecard matrices in `d0f059d`)
@@ -180,9 +181,11 @@ Note: local Flask may die when agent shells end → `ERR_CONNECTION_REFUSED`; re
 
 ## Deploy
 ```powershell
-git push origin main          # GitHub → Vercel auto-deploy
+git push origin main          # GitHub → Vercel auto-deploy (fuel-ledger/scoreboard)
 ```
-CLI `vercel deploy --prod` may hit auth issues.
+CLI: `npx vercel deploy --prod --yes --scope fuel-ledger`
+
+**Free hosting note:** Personal Vercel scope isn’t available on this login, and creating a new team requires a payment method. Live free deploy is under **Fuel Ledger** → `scoreboard`. The old `intrakore` team remains paused (`DEPLOYMENT_DISABLED`).
 
 Git commit author (if committing as bot):
 ```powershell
@@ -196,7 +199,7 @@ git -c user.email="nahiyanmahtabhasan-bot@users.noreply.github.com" -c user.name
 |---|---|
 | `GOOGLE_SHEET_ID` | Intrakore sheet ID above |
 | `BUGS_SHEET_ID` / `BUGS_SHEET_TAB` | Snag list sheet (`1E7ucvpw7dOismcoBGWm3wqp_oIo_QBKG` / `BugIndex`) |
-| `SCOREBOARD_CACHE_SECONDS` | `30` |
+| `SCOREBOARD_CACHE_SECONDS` | `120` (matches 2‑min auto-sync) |
 | `MS_TENANT_ID` / `MS_CLIENT_ID` / `MS_CLIENT_SECRET` | Microsoft Forms |
 | Local only | `SCOREBOARD_XLSX`, `SCOREBOARD_USE_LOCAL=1` (disabled on Vercel) |
 
@@ -209,10 +212,10 @@ git -c user.email="nahiyanmahtabhasan-bot@users.noreply.github.com" -c user.name
 - Multi-source configs browser-local + shareable; no server DB
 - Google Forms = linked response spreadsheet (no Google OAuth)
 - Custom websites = iframe; some hosts block embedding
-- Loading popup **only** on source activate/switch — not on 30s sync
+- Loading popup **only** on source activate/switch — not on 2‑min sync
 - Generic sources: auto layout from heuristics; user can override via template gallery / field mapper (no AI / no LLM cost)
 - Bug / snag sheets → `bug_index` (table-first, severity/status chips) — not module progress cards
-- Scorecard **Bugs** tab removed — use the seeded **Bug analysis** source instead (blank STATUS = Unopened, not Closed); filterable cards with severity/status chips + module/area/responsible; click a card for full finding detail; hero status tiles match Project Plan gradients and update with filters (no pivot table)
+- Scorecard tabs: Module Progress · Team Workload · Phase Breakdown · **Bugs** — Bugs loads snag list via `/api/bugs`; hero tiles switch to Unopened/Open/Actioned/Closed when that tab is open (blank STATUS = Unopened); filterable cards; no separate Bug analysis source
 - Advanced board **Columns** control only appears for board types that use it
 - Keep `public/` in sync when editing UI
 
@@ -224,7 +227,7 @@ git -c user.email="nahiyanmahtabhasan-bot@users.noreply.github.com" -c user.name
 3. Optional: TV zoom auto-default, custom domain, Safari `transform: scale()` fallback
 4. Optional later: AI source-designer wizard (external LLM) — skipped for now (API cost)
 5. Keep this `HANDOFF.md` updated when major features land
-6. After deploy: re-open any BugIndex source → pick **BugIndex** tab → **Preview** (should suggest Bug / issue index) → Save / Activate
+6. After deploy: open Intrakore Scorecard → **Bugs** tab to confirm snag-list cards + hero status tiles load from `/api/bugs`
 
 ---
 

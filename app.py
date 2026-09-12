@@ -49,7 +49,7 @@ BUGS_SHEET_URL = os.environ.get(
 )
 
 DEFAULT_XLSX = Path.home() / "Downloads" / "Copy of Project Plan.xlsx"
-CACHE_TTL_SECONDS = int(os.environ.get("SCOREBOARD_CACHE_SECONDS", "30"))
+CACHE_TTL_SECONDS = int(os.environ.get("SCOREBOARD_CACHE_SECONDS", "120"))
 UPLOAD_MAX_BYTES = 4 * 1024 * 1024
 
 BASE_DIR = Path(__file__).resolve().parent

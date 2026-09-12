@@ -38,6 +38,7 @@
       <button class="tab active" data-tab="modules">Module Progress</button>
       <button class="tab" data-tab="team">Team Workload</button>
       <button class="tab" data-tab="phases">Phase Breakdown</button>
+      <button class="tab" data-tab="bugs">Bugs</button>
     </nav>
 
     <nav class="tabs hidden" id="generic-tabs"></nav>
@@ -97,7 +98,7 @@
         </div>
       </section>
 
-      <section class="panel hidden" id="panel-bugs">
+      <section class="panel" id="panel-bugs">
         <div class="panel-header panel-header-row">
           <div>
             <h2>Bug Index</h2>
@@ -154,7 +155,7 @@
     </main>
 
     <footer>
-      <span id="updated-at">Auto-refreshes every 30 seconds</span>
+      <span id="updated-at">Auto-refreshes every 2 minutes</span>
     </footer>
   </div>
   </div>
@@ -224,6 +225,10 @@
         <label class="slideshow-option">
           <input type="checkbox" id="slide-phases">
           <span>Phase Breakdown</span>
+        </label>
+        <label class="slideshow-option">
+          <input type="checkbox" id="slide-bugs">
+          <span>Bugs</span>
         </label>
       </fieldset>
       <div id="slideshow-generic-fields" class="hidden"></div>
@@ -295,16 +300,6 @@
       "https://docs.google.com/spreadsheets/d/1E7ucvpw7dOismcoBGWm3wqp_oIo_QBKG/edit?gid=1611749406#gid=1611749406";
     const SOURCES_KEY = "scoreboard-sources-config";
 
-    const DEFAULT_BUG_ANALYSIS_SOURCE = {
-      id: "bugindex",
-      name: "Bug analysis",
-      type: "google_sheet",
-      displayMode: "generic",
-      autoSync: true,
-      connection: { urlOrId: DEFAULT_BUGS_SHEET_URL, tab: "BugIndex" },
-      mapping: { template: "bug_index" },
-    };
-
     const DEFAULT_CONFIG = {
       version: 1,
       activeSourceId: "intrakore",
@@ -318,7 +313,6 @@
           connection: { urlOrId: DEFAULT_SHEET_ID, tab: "Scorecard" },
           mapping: { preset: "intrakore_scorecard" },
         },
-        structuredClone(DEFAULT_BUG_ANALYSIS_SOURCE),
       ],
     };
 
@@ -335,6 +329,7 @@
     let bugSeverityFilter = "all";
     let bugModuleFilter = "all";
     let bugSearch = "";
+    let scorecardTab = "modules";
     let displayMode = "scorecard";
     let editingSourceId = null;
     let previewState = null;
@@ -392,32 +387,12 @@
       return JSON.parse(new TextDecoder().decode(bytes));
     }
 
-    function isBugAnalysisSource(source) {
+    function isSeededBugAnalysisSource(source) {
       if (!source) return false;
-      const tab = (source.connection?.tab || "").toLowerCase().replace(/\s+/g, "");
-      const name = (source.name || "").toLowerCase();
       const url = String(source.connection?.urlOrId || "");
       return source.id === "bugindex"
-        || source.mapping?.template === "bug_index"
-        || tab === "bugindex"
-        || /bug\s*(index|analysis)|snag/.test(name)
-        || url.includes(DEFAULT_BUGS_SHEET_ID);
-    }
-
-    function syncBugAnalysisSource(source) {
-      const next = { ...source };
-      next.type = "google_sheet";
-      next.autoSync = true;
-      next.connection = {
-        ...(source.connection || {}),
-        urlOrId: DEFAULT_BUGS_SHEET_URL,
-        tab: "BugIndex",
-      };
-      next.mapping = { ...(source.mapping || {}), template: "bug_index" };
-      if (!next.name || /^bug\s*index$/i.test(next.name) || next.id === "bugindex") {
-        next.name = "Bug analysis";
-      }
-      return next;
+        || url.includes(DEFAULT_BUGS_SHEET_ID)
+        || (/bug\s*(index|analysis)/i.test(source.name || "") && (source.connection?.tab || "").toLowerCase() === "bugindex");
     }
 
     function normalizeConfig(raw) {
@@ -425,23 +400,20 @@
       let sources = Array.isArray(raw.sources) && raw.sources.length
         ? raw.sources.slice()
         : structuredClone(DEFAULT_CONFIG.sources);
-      let foundBug = false;
-      sources = sources.map((source) => {
-        if (!isBugAnalysisSource(source)) return source;
-        foundBug = true;
-        return syncBugAnalysisSource(source);
-      });
-      if (!foundBug) {
-        sources.push(structuredClone(DEFAULT_BUG_ANALYSIS_SOURCE));
-      }
+      // Bugs live on the Scorecard Bugs tab now — drop the old separate Bug analysis source
+      sources = sources.filter((source) => !isSeededBugAnalysisSource(source));
+      if (!sources.length) sources = structuredClone(DEFAULT_CONFIG.sources);
       sources = sources.map((source) => (
         source.autoSync == null && source.type !== "website"
           ? { ...source, autoSync: true }
           : source
       ));
-      const activeSourceId = sources.some((s) => s.id === raw.activeSourceId)
+      let activeSourceId = sources.some((s) => s.id === raw.activeSourceId)
         ? raw.activeSourceId
         : sources[0].id;
+      if (isSeededBugAnalysisSource(sources.find((s) => s.id === activeSourceId))) {
+        activeSourceId = sources[0].id;
+      }
       return { version: 1, activeSourceId, sources };
     }
 
@@ -519,7 +491,6 @@
       const isScorecard = mode === "scorecard";
       const isGeneric = mode === "generic";
       const isWebsite = mode === "website";
-      const isBugs = mode === "bugs";
       const enteringScorecard = isScorecard && scorecardTabs.classList.contains("hidden");
 
       scorecardTabs.classList.toggle("hidden", !isScorecard);
@@ -527,14 +498,11 @@
       document.getElementById("slideshow-slides-fields").classList.toggle("hidden", !isScorecard);
       document.getElementById("slideshow-generic-fields").classList.toggle("hidden", !isGeneric);
 
-      ["modules", "team", "phases"].forEach((name) => {
+      ["modules", "team", "phases", "bugs"].forEach((name) => {
         const panel = document.getElementById(`panel-${name}`);
         panel.classList.toggle("hidden", !isScorecard);
         if (!isScorecard) panel.classList.remove("active");
       });
-      const bugsPanel = document.getElementById("panel-bugs");
-      bugsPanel.classList.toggle("hidden", !isBugs);
-      bugsPanel.classList.toggle("active", isBugs);
       document.getElementById("panel-generic").classList.toggle("hidden", !isGeneric);
       if (!isGeneric) document.getElementById("panel-generic").classList.remove("active");
       document.getElementById("panel-website").classList.toggle("hidden", !isWebsite);
@@ -1078,14 +1046,7 @@
       });
     }
 
-    function renderHeroBugs(data, source) {
-      updateHeroTitle(source);
-      const sheetUrl = source.connection?.urlOrId || data.source_url || "";
-      const label = `${esc(source.name)} · BugIndex`;
-      const link = sheetUrl
-        ? `<a href="${esc(sheetUrl)}" target="_blank" rel="noopener">${label}</a>`
-        : label;
-      document.getElementById("source-file").innerHTML = link;
+    function renderHeroBugStats(data) {
       const { byStatus, openCritical, total } = bugStatusCounts(filteredBugs(data));
       document.getElementById("hero-stats").innerHTML = `
         <article class="stat-card">
@@ -1111,10 +1072,24 @@
       `;
     }
 
+    function updateBugsSourceLabel(data) {
+      const label = document.getElementById("bugs-source-label");
+      const sheetUrl = data?.source_url || DEFAULT_BUGS_SHEET_URL;
+      const file = data?.source_file || "Bug Index";
+      const sheet = data?.source_sheet || "BugIndex";
+      if (sheetUrl) {
+        label.innerHTML = `<a href="${esc(sheetUrl)}" target="_blank" rel="noopener">${esc(file)} · ${esc(sheet)}</a>`;
+      } else {
+        label.textContent = `${file} · ${sheet}`;
+      }
+    }
+
     function refreshBugsUi() {
       if (!bugsData) return;
-      renderHeroBugs(bugsData, activeSource());
       renderBugsCards(bugsData);
+      if (scorecardTab === "bugs" && displayMode === "scorecard") {
+        renderHeroBugStats(bugsData);
+      }
     }
 
     function renderBugs(data) {
@@ -1123,17 +1098,35 @@
           `<p class="empty-state">Loading bugs…</p>`;
         return;
       }
-      const label = document.getElementById("bugs-source-label");
-      const source = activeSource();
-      const sheetUrl = source.connection?.urlOrId || data.source_url || "";
-      if (sheetUrl) {
-        label.innerHTML = `<a href="${esc(sheetUrl)}" target="_blank" rel="noopener">${esc(data.source_file || source.name)} · ${esc(data.source_sheet || "BugIndex")}</a>`;
-      } else {
-        label.textContent = `${data.source_file || "Bug analysis"} · ${data.source_sheet || "BugIndex"}`;
-      }
+      updateBugsSourceLabel(data);
       fillBugFilterOptions(data);
-      renderHeroBugs(data, activeSource());
       renderBugsCards(data);
+      if (scorecardTab === "bugs" && displayMode === "scorecard") {
+        renderHeroBugStats(data);
+      }
+    }
+
+    async function loadBugsForScorecard(forceRefresh, gen, sourceId) {
+      try {
+        const response = await fetch(`/api/bugs${forceRefresh ? "?refresh=1" : ""}`);
+        const data = await response.json();
+        if (gen !== loadGeneration || activeSource().id !== sourceId) return;
+        if (!response.ok) throw new Error(data.error || "Failed to load bugs");
+        bugsData = data;
+        updateBugsSourceLabel(data);
+        fillBugFilterOptions(data);
+        if (scorecardTab === "bugs") {
+          renderBugsCards(data);
+          renderHeroBugStats(data);
+        }
+      } catch (err) {
+        if (gen !== loadGeneration || activeSource().id !== sourceId) return;
+        bugsData = null;
+        if (scorecardTab === "bugs") {
+          document.getElementById("bugs-card-grid").innerHTML =
+            `<p class="empty-state">${esc(err.message || "Failed to load bugs")}</p>`;
+        }
+      }
     }
 
     function openBugModal(bug) {
@@ -1417,15 +1410,27 @@
     }
 
     function switchTab(tabName) {
+      scorecardTab = tabName;
       document.querySelectorAll("#scorecard-tabs .tab").forEach((tab) => {
         tab.classList.toggle("active", tab.dataset.tab === tabName);
       });
-      ["modules", "team", "phases"].forEach((name) => {
+      ["modules", "team", "phases", "bugs"].forEach((name) => {
         const panel = document.getElementById(`panel-${name}`);
         panel.classList.toggle("active", name === tabName);
       });
       document.getElementById("panel-generic").classList.remove("active");
-      document.getElementById("panel-bugs").classList.remove("active");
+
+      if (tabName === "bugs") {
+        if (bugsData) {
+          renderBugs(bugsData);
+        } else {
+          document.getElementById("bugs-card-grid").innerHTML =
+            `<p class="empty-state">Loading bugs…</p>`;
+          document.getElementById("hero-stats").innerHTML = "";
+        }
+      } else if (scoreboardData) {
+        renderHeroScorecard(scoreboardData);
+      }
     }
 
     function showSourceError(message, source) {
@@ -1439,9 +1444,7 @@
       const src = source || activeSource();
       const mode = src.displayMode === "website"
         ? "website"
-        : (src.mapping?.template === "bug_index" || (src.connection?.tab || "").toLowerCase() === "bugindex")
-          ? "bugs"
-          : (src.displayMode === "scorecard" ? "scorecard" : "generic");
+        : (src.displayMode === "scorecard" ? "scorecard" : "generic");
       setDisplayMode(mode);
       if (mode === "generic") {
         document.getElementById("generic-tabs").innerHTML = "";
@@ -1451,9 +1454,6 @@
         document.getElementById("panel-generic").classList.add("active");
       } else if (mode === "scorecard") {
         document.getElementById("module-grid").innerHTML =
-          `<p class="empty-state">${esc(message || "Failed to load source")}</p>`;
-      } else if (mode === "bugs") {
-        document.getElementById("bugs-card-grid").innerHTML =
           `<p class="empty-state">${esc(message || "Failed to load source")}</p>`;
       }
     }
@@ -1534,7 +1534,7 @@
           : new Date().toLocaleTimeString();
         const cacheNote = data.from_cache ? " · cached" : " · live from source";
         document.getElementById("updated-at").textContent =
-          `${source.name} synced ${syncedAt}${cacheNote} · auto-refreshes every 30s`;
+          `${source.name} synced ${syncedAt}${cacheNote} · auto-refreshes every 2 min`;
 
         // Prefer server mode; only fall back to client displayMode when server omitted it
         const mode = data.mode || source.displayMode || "generic";
@@ -1542,9 +1542,12 @@
           setDisplayMode("scorecard");
           scoreboardData = data;
           genericData = null;
-          bugsData = null;
           activeGenericBoardId = null;
-          renderHeroScorecard(data);
+          if (scorecardTab === "bugs") {
+            if (bugsData) renderHeroBugStats(bugsData);
+          } else {
+            renderHeroScorecard(data);
+          }
           if (slideshow.running && slideshow.slides[slideshow.index]?.type === "modules") {
             renderModules(data, slideshow.slides[slideshow.index].filter);
           } else {
@@ -1552,15 +1555,17 @@
           }
           renderTeam(data);
           renderPhases(data);
+          loadBugsForScorecard(forceRefresh, gen, sourceId);
         } else if (mode === "bugs") {
-          setDisplayMode("bugs");
-          scoreboardData = null;
+          // Legacy bug-only sources: fold into scorecard Bugs tab
+          setDisplayMode("scorecard");
           genericData = null;
           activeGenericBoardId = null;
           bugsData = data;
           renderBugs(data);
+          switchTab("bugs");
           document.getElementById("updated-at").textContent =
-            `${source.name} synced ${syncedAt}${cacheNote} · auto-sync every 30s`;
+            `${source.name} synced ${syncedAt}${cacheNote} · auto-sync every 2 min`;
         } else {
           setDisplayMode("generic");
           scoreboardData = null;
@@ -2838,6 +2843,7 @@
         modulesFilter: document.getElementById("slide-modules-filter").value,
         team: document.getElementById("slide-team").checked,
         phases: document.getElementById("slide-phases").checked,
+        bugs: document.getElementById("slide-bugs").checked,
         minutes: Number(document.getElementById("slide-minutes").value) || 2,
         genericBoardIds: Array.from(document.querySelectorAll(".slide-generic-board:checked")).map(
           (el) => el.dataset.boardId
@@ -2857,15 +2863,13 @@
         document.getElementById("slide-modules-filter").value = saved.modulesFilter || "all";
         document.getElementById("slide-team").checked = !!saved.team;
         document.getElementById("slide-phases").checked = !!saved.phases;
+        document.getElementById("slide-bugs").checked = !!saved.bugs;
         document.getElementById("slide-minutes").value = saved.minutes ?? 2;
       } catch (_) { /* ignore */ }
       slideModulesFilterRow.classList.toggle("hidden", !document.getElementById("slide-modules").checked);
     }
 
     function buildSlideQueue(config) {
-      if (displayMode === "bugs" && bugsData) {
-        return [{ type: "bugs", label: "Bug Index", scroll: true }];
-      }
       if (displayMode === "generic" && genericData?.boards?.length) {
         const ids = config.genericBoardIds?.length
           ? config.genericBoardIds
@@ -2888,6 +2892,9 @@
       }
       if (config.phases) {
         queue.push({ type: "phases", label: "Phase Breakdown", scroll: true });
+      }
+      if (config.bugs) {
+        queue.push({ type: "bugs", label: "Bugs", scroll: true });
       }
       return queue;
     }
@@ -2928,9 +2935,6 @@
         activeGenericBoardId = slide.boardId;
         if (genericData) renderGeneric(genericData);
         document.getElementById("panel-generic").classList.add("active");
-      } else if (slide.type === "bugs") {
-        document.getElementById("panel-bugs").classList.add("active");
-        if (bugsData) renderBugs(bugsData);
       } else {
         switchTab(slide.type);
         if (slide.type === "modules" && scoreboardData) {
@@ -3050,7 +3054,7 @@
       if (source.autoSync === false) return;
       // Quiet background sync for Scorecard + Bug analysis (and other sheet sources)
       loadActiveSource(true);
-    }, 30000);
+    }, 120000);
   </script>
 </body>
 </html>
