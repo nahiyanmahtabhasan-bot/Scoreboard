@@ -2870,6 +2870,7 @@
     }
 
     function buildSlideQueue(config) {
+      if (displayMode === "website") return [];
       if (displayMode === "generic" && genericData?.boards?.length) {
         const ids = config.genericBoardIds?.length
           ? config.genericBoardIds
@@ -2883,6 +2884,7 @@
             scroll: true,
           }));
       }
+      if (displayMode !== "scorecard") return [];
       const queue = [];
       if (config.modules) {
         queue.push({ type: "modules", filter: config.modulesFilter, label: "Module Progress" });
@@ -2947,6 +2949,7 @@
           : document.getElementById(`panel-${slide.type}`))
         : null;
       if (panel) panel.scrollTop = 0;
+      // Re-resolve after tab render so scroll height matches current content
       slideshow.scrollPanel = getScrollElement(slide);
       resetPanelScroll(slideshow.scrollPanel);
     }
@@ -2989,13 +2992,33 @@
       slideshow.rafId = requestAnimationFrame(tick);
     }
 
-    function startSlideshow() {
+    async function ensureBugsLoadedForSlideshow() {
+      if (bugsData || displayMode !== "scorecard") return;
+      try {
+        const response = await fetch("/api/bugs?refresh=1");
+        const data = await response.json();
+        if (!response.ok) return;
+        bugsData = data;
+        updateBugsSourceLabel(data);
+        fillBugFilterOptions(data);
+      } catch (_) { /* leave empty; Bugs slide shows loading/empty */ }
+    }
+
+    async function startSlideshow() {
       const config = readSlideshowConfig();
       saveSlideshowConfig(config);
       const queue = buildSlideQueue(config);
       if (!queue.length) {
-        alert("Select at least one page for the slideshow.");
+        alert(
+          displayMode === "website"
+            ? "Slideshow is not available for website sources."
+            : "Select at least one page for the slideshow."
+        );
         return;
+      }
+
+      if (queue.some((slide) => slide.type === "bugs")) {
+        await ensureBugsLoadedForSlideshow();
       }
 
       slideshow.running = true;
@@ -3026,8 +3049,14 @@
       slideshowToggle.classList.remove("active");
       slideshowToggle.querySelector("span").textContent = "▶";
 
-      if (scoreboardData) renderModules(scoreboardData);
-      if (genericData) renderGeneric(genericData);
+      if (displayMode === "scorecard") {
+        switchTab(scorecardTab);
+        if (scorecardTab === "modules" && scoreboardData) {
+          renderModules(scoreboardData);
+        }
+      } else if (displayMode === "generic" && genericData) {
+        renderGeneric(genericData);
+      }
     }
 
     document.getElementById("slide-modules").addEventListener("change", (event) => {

@@ -136,7 +136,7 @@ Active source = Intrakore Scorecard (`displayMode: scorecard`, mapping preset `i
 7. Phase Breakdown (fixed from Scorecard matrices in `d0f059d`)
 8. Single-page Module Progress (TV/PC)
 9. Page resize 75–175% (`localStorage` `scoreboard-page-scale`)
-10. Slideshow mode
+10. Slideshow mode — cycles selected Scorecard pages (Modules / Team / Phases / Bugs) or generic boards; auto-scrolls tall panels; hero stats follow the active Bugs/scorecard tab; Escape or ▶ stops
 11. Top-center date
 12. Multi-source panel + APIs (`d0f059d`)
 

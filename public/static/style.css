@@ -465,7 +465,8 @@ body.slideshow-mode .page-date {
 
 body.slideshow-mode .tabs,
 body.slideshow-mode .panel-controls,
-body.slideshow-mode .refresh-btn {
+body.slideshow-mode .refresh-btn,
+body.slideshow-mode .sources-btn {
   pointer-events: none;
   opacity: 0.45;
 }
@@ -474,17 +475,25 @@ body.slideshow-mode .module-card {
   pointer-events: none;
 }
 
-body.slideshow-mode #panel-team.active {
+body.slideshow-mode .bug-card {
+  pointer-events: none;
+}
+
+body.slideshow-mode #panel-team.active,
+body.slideshow-mode #panel-phases.active,
+body.slideshow-mode #panel-bugs.active {
   overflow: hidden;
 }
 
-body.slideshow-mode #panel-team .table-wrap {
+body.slideshow-mode #panel-team .table-wrap,
+body.slideshow-mode #panel-phases .table-wrap {
   flex: 1;
   min-height: 0;
 }
 
-body.slideshow-mode #panel-phases.active {
-  scroll-behavior: auto;
+body.slideshow-mode #panel-bugs .bugs-card-grid {
+  flex: 1;
+  min-height: 0;
 }
 
 .hero-stats {
